@@ -1,5 +1,6 @@
 2026.213:
 	- Update libmseed to v3.5.3.
+	- Update mbedtls to v3.6.7.
 
 2026.184: v4.5.4
 	- Add gzip HTTP content encoding support for status endpoints.
