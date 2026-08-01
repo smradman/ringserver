@@ -3,7 +3,7 @@
  *
  * This file is part of the miniSEED Library.
  *
- * Copyright (c) 2024 Chad Trabant, EarthScope Data Services
+ * Copyright (c) 2026 Chad Trabant, EarthScope Data Services
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,13 +65,52 @@ struct MS3TraceListPacker
 
   MS3TraceID *current_id;      /* Current trace ID */
   MS3TraceSeg *current_seg;    /* Current segment */
+  MS3TraceID *last_id;         /* Trace ID of last completed segment (MSF_MAINTAINMSTL) */
+  MS3TraceSeg *last_seg;       /* Last completed segment (MSF_MAINTAINMSTL) */
   MS3RecordPacker *seg_packing_state; /* Current segment packing state */
   MS3Record msr_template;      /* Template MS3Record for current segment */
   int64_t segpackedsamples;    /* Samples packed from current segment */
   int64_t totalpackedsamples;  /* Total samples packed */
   int64_t totalpackedrecords;  /* Total records packed */
-  uint8_t finished;            /* Packing complete flag */
 };
+
+/* Number of most-recently-active segments tracked per MS3TraceID, used to
+ * bound the segment-list search in _mstl3_addmsr_impl() */
+#define LM_RECENTSEGS 4
+
+/* Maximum hops walked when resolving list order among recent segments or
+ * falling back to a direct list walk, beyond which the fast path is
+ * refused in favor of a full scan */
+#define LM_RECENTSEGS_MAXWALK 8
+
+/* Private extension of MS3TraceList (opaque in public header).
+ *
+ * The public struct is the first member so public pointers, sizeof, and
+ * field offsets are unaffected by the extension. */
+typedef struct
+{
+  MS3TraceList mstl;
+  int8_t foreignid; /* Set if an MS3TraceID not allocated by this library may be present */
+} LMTraceListNode;
+
+/* Private extension of MS3TraceID (opaque in public header).
+ *
+ * Tracks the most-recently-active segments of a trace ID (the "recent set")
+ * and nonrecentendbound, an upper bound on the end time of every segment
+ * NOT in the recent set.  The bound may overestimate, which only costs
+ * search performance, but must never underestimate, which would cause a
+ * match to be missed.  It starts at INT64_MIN and only ever rises, folding
+ * in the end time of segments as they are evicted from the recent set or
+ * removed from the trace list.
+ *
+ * The public struct is the first member so public pointers, sizeof, and
+ * field offsets are unaffected by the extension. */
+typedef struct
+{
+  MS3TraceID id;
+  MS3TraceSeg *recentseg[LM_RECENTSEGS];
+  nstime_t nonrecentendbound;
+} LMTraceIDNode;
 
 #ifdef __cplusplus
 }

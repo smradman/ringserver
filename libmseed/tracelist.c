@@ -27,23 +27,36 @@
 #include "internalstate.h"
 #include "libmseed.h"
 
+static MS3TraceID *lm_addID (MS3TraceList *mstl, MS3TraceID *id, MS3TraceID **prev);
 static MS3TraceSeg *lm_msr2seg (const MS3Record *msr, nstime_t endtime);
 static MS3TraceSeg *lm_addmsrtoseg (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime,
                                     int8_t whence);
 static MS3TraceSeg *lm_addsegtoseg (MS3TraceSeg *seg1, MS3TraceSeg *seg2);
 static MS3RecordPtr *lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime,
-                                       int8_t whence);
+                                       int8_t whence, uint32_t flags);
+
+static void lm_recentseg_touch (LMTraceIDNode *idnode, MS3TraceSeg *seg);
+static void lm_recentseg_remove (LMTraceIDNode *idnode, MS3TraceSeg *seg);
+static void lm_endbound_fold (LMTraceIDNode *idnode, nstime_t endtime);
+static int lm_seg_listorder (const MS3TraceSeg *a, const MS3TraceSeg *b, int *order);
+static int lm_scan_recent (LMTraceIDNode *idnode, const MS3Record *msr, nstime_t endtime,
+                           nstime_t nsperiod, nstime_t nstimetol, nstime_t nnstimetol,
+                           double sampratehz, double sampratetol, int8_t autoheal,
+                           MS3TraceSeg **psegbefore, MS3TraceSeg **psegafter,
+                           MS3TraceSeg **pfollowseg);
 
 static void lm_free_segment_memory (MS3TraceSeg *seg, int8_t freeprvtptr);
 static int lm_remove_segment (MS3TraceList *mstl, MS3TraceID *id, MS3TraceSeg *seg,
                               int8_t freeprvtptr);
+static void lm_update_id_extent (MS3TraceID *id);
 static uint32_t lm_lcg_r (uint64_t *state);
 static uint8_t lm_random_height (uint8_t maximum, uint64_t *state);
+static nstime_t lm_packed_starttime (const MS3TraceSeg *seg, int64_t packedsamples);
 
-/* Test if two sample rates are similar using either specified tolerance (if positive) or default
- * tolerance */
+/* Test if two sample rates are similar using either specified tolerance (if non-negative) or
+ * default tolerance */
 #define IS_SAMPRATE_SIMILAR(SR1, SR2, SRT) \
-  ((SRT > 0.0) ? fabs (SR1 - SR2) <= SRT : MS_ISRATETOLERABLE (SR1, SR2))
+  ((SR1) == (SR2) || ((SRT >= 0.0) ? fabs (SR1 - SR2) <= SRT : MS_ISRATETOLERABLE (SR1, SR2)))
 
 /* Test if a MS3TraceSeg represents time coverage */
 #define SEGMENT_HAS_TIME_COVERAGE(seg) ((seg)->samplecnt > 0 && (seg)->samprate != 0.0)
@@ -71,7 +84,7 @@ mstl3_init (MS3TraceList *mstl)
     mstl3_free (&mstl, 1);
   }
 
-  mstl = (MS3TraceList *)libmseed_memory.malloc (sizeof (MS3TraceList));
+  mstl = (MS3TraceList *)libmseed_memory.malloc (sizeof (LMTraceListNode));
 
   if (mstl == NULL)
   {
@@ -79,7 +92,7 @@ mstl3_init (MS3TraceList *mstl)
     return NULL;
   }
 
-  memset (mstl, 0, sizeof (MS3TraceList));
+  memset (mstl, 0, sizeof (LMTraceListNode));
 
   /* Seed PRNG with 1, we only need random distribution */
   mstl->prngstate = 1;
@@ -106,7 +119,7 @@ mstl3_free (MS3TraceList **ppmstl, int8_t freeprvtptr)
   MS3TraceSeg *seg = NULL;
   MS3TraceSeg *nextseg = NULL;
 
-  if (!ppmstl)
+  if (!ppmstl || !*ppmstl)
     return;
 
   /* Free any associated traces */
@@ -234,6 +247,19 @@ mstl3_findID (MS3TraceList *mstl, const char *sid, uint8_t pubversion, MS3TraceI
 MS3TraceID *
 mstl3_addID (MS3TraceList *mstl, MS3TraceID *id, MS3TraceID **prev)
 {
+  /* An ID added through this public entry point may not carry the private
+   * tail this library allocates internally, so disable the state that
+   * relies on it for the containing list. */
+  if (mstl)
+    ((LMTraceListNode *)mstl)->foreignid = 1;
+
+  return lm_addID (mstl, id, prev);
+} /* End of mstl3_addID() */
+
+/* Add a MS3TraceID to a MS3TraceList, see mstl3_addID() for the public entry point. */
+static MS3TraceID *
+lm_addID (MS3TraceList *mstl, MS3TraceID *id, MS3TraceID **prev)
+{
   MS3TraceID *local_prev[MSTRACEID_SKIPLIST_HEIGHT] = {NULL};
   int level;
 
@@ -279,7 +305,279 @@ mstl3_addID (MS3TraceList *mstl, MS3TraceID *id, MS3TraceID **prev)
   mstl->numtraceids++;
 
   return id;
-} /* End of mstl3_addID() */
+} /* End of lm_addID() */
+
+/***************************************************************************
+ * Move a segment into the most-recently-used slot of a trace ID's recent
+ * set, evicting the least-recently-used entry if the segment was not
+ * already tracked.  An evicted segment's current end time is folded into
+ * the non-recent end-time bound before it is dropped.
+ ***************************************************************************/
+static void
+lm_recentseg_touch (LMTraceIDNode *idnode, MS3TraceSeg *seg)
+{
+  MS3TraceSeg *evicted;
+  int found = -1;
+  int i;
+
+  if (!seg)
+    return;
+
+  for (i = 0; i < LM_RECENTSEGS; i++)
+  {
+    if (idnode->recentseg[i] == seg)
+    {
+      found = i;
+      break;
+    }
+  }
+
+  /* Only the least-recently-used slot is evicted, and only when the
+   * segment being touched was not already present */
+  evicted = (found < 0) ? idnode->recentseg[LM_RECENTSEGS - 1] : NULL;
+
+  /* Shift entries from the found (or last) slot down to make room at the front */
+  for (i = (found < 0) ? LM_RECENTSEGS - 1 : found; i > 0; i--)
+  {
+    idnode->recentseg[i] = idnode->recentseg[i - 1];
+  }
+
+  idnode->recentseg[0] = seg;
+
+  if (evicted)
+    lm_endbound_fold (idnode, evicted->endtime);
+} /* End of lm_recentseg_touch() */
+
+/***************************************************************************
+ * Remove a segment from a trace ID's recent set, if present, compacting the
+ * array.  The end-time bound is not lowered; it may now overestimate for
+ * this segment, which only costs search performance.
+ ***************************************************************************/
+static void
+lm_recentseg_remove (LMTraceIDNode *idnode, MS3TraceSeg *seg)
+{
+  int i, j;
+
+  for (i = 0; i < LM_RECENTSEGS; i++)
+  {
+    if (idnode->recentseg[i] == seg)
+    {
+      for (j = i; j < LM_RECENTSEGS - 1; j++)
+        idnode->recentseg[j] = idnode->recentseg[j + 1];
+
+      idnode->recentseg[LM_RECENTSEGS - 1] = NULL;
+      break;
+    }
+  }
+} /* End of lm_recentseg_remove() */
+
+/***************************************************************************
+ * Raise a trace ID's non-recent end-time bound to cover a known end time.
+ * The bound only ever grows.
+ ***************************************************************************/
+static void
+lm_endbound_fold (LMTraceIDNode *idnode, nstime_t endtime)
+{
+  if (endtime > idnode->nonrecentendbound)
+    idnode->nonrecentendbound = endtime;
+} /* End of lm_endbound_fold() */
+
+/***************************************************************************
+ * Determine the list order of two segments: starttime ascending, endtime
+ * descending.  Segments with fully equal keys are adjacent in the list;
+ * such ties are resolved by walking a bounded number of hops from 'a' in
+ * each direction looking for 'b'.
+ *
+ * On success returns 1 and sets *order to -1 (a before b), 0 (a is b), or
+ * 1 (a after b).  Returns 0 if the order could not be resolved within the
+ * walk bound.
+ ***************************************************************************/
+static int
+lm_seg_listorder (const MS3TraceSeg *a, const MS3TraceSeg *b, int *order)
+{
+  const MS3TraceSeg *walk;
+  int hops;
+
+  if (a == b)
+  {
+    *order = 0;
+    return 1;
+  }
+
+  if (a->starttime != b->starttime)
+  {
+    *order = (a->starttime < b->starttime) ? -1 : 1;
+    return 1;
+  }
+
+  if (a->endtime != b->endtime)
+  {
+    *order = (a->endtime > b->endtime) ? -1 : 1;
+    return 1;
+  }
+
+  for (walk = a->next, hops = 0; walk && hops < LM_RECENTSEGS_MAXWALK; walk = walk->next, hops++)
+  {
+    if (walk == b)
+    {
+      *order = -1;
+      return 1;
+    }
+  }
+
+  for (walk = a->prev, hops = 0; walk && hops < LM_RECENTSEGS_MAXWALK; walk = walk->prev, hops++)
+  {
+    if (walk == b)
+    {
+      *order = 1;
+      return 1;
+    }
+  }
+
+  return 0;
+} /* End of lm_seg_listorder() */
+
+/***************************************************************************
+ * Reproduce the segment-list search of _mstl3_addmsr_impl() using only
+ * the recent segments of a trace ID.  Callable only when every segment not
+ * in the recent set is provably out of range for segbefore, segafter, and
+ * the autoheal exact match, and necessarily sorts before the record (see
+ * the guard at the call site); under that condition the outcome of the
+ * recent segments alone matches a full scan.
+ *
+ * This loop body mirrors the general search in _mstl3_addmsr_impl() and
+ * must be kept in lockstep with it.
+ *
+ * Returns 1 with *psegbefore, *psegafter and *pfollowseg set (any may be
+ * NULL) when the shortcut applies. Returns 0, with the outputs untouched,
+ * when the search cannot be resolved from the recent set and the caller
+ * must fall back to a full scan.
+ ***************************************************************************/
+static int
+lm_scan_recent (LMTraceIDNode *idnode, const MS3Record *msr, nstime_t endtime, nstime_t nsperiod,
+                nstime_t nstimetol, nstime_t nnstimetol, double sampratehz, double sampratetol,
+                int8_t autoheal, MS3TraceSeg **psegbefore, MS3TraceSeg **psegafter,
+                MS3TraceSeg **pfollowseg)
+{
+  MS3TraceSeg *recent[LM_RECENTSEGS];
+  MS3TraceSeg *searchseg;
+  MS3TraceSeg *segbefore = NULL;
+  MS3TraceSeg *segafter = NULL;
+  MS3TraceSeg *followseg = NULL;
+  nstime_t postgap;
+  nstime_t pregap;
+  int order;
+  int count = 0;
+  int i, j;
+
+  /* Collect the tracked recent segments */
+  for (i = 0; i < LM_RECENTSEGS; i++)
+  {
+    if (idnode->recentseg[i])
+      recent[count++] = idnode->recentseg[i];
+  }
+
+  /* Sort the collected segments into list order; a small insertion sort
+   * is sufficient for this fixed, small-size array */
+  for (i = 1; i < count; i++)
+  {
+    for (j = i; j > 0; j--)
+    {
+      if (!lm_seg_listorder (recent[j - 1], recent[j], &order))
+        return 0;
+
+      if (order <= 0)
+        break;
+
+      searchseg = recent[j - 1];
+      recent[j - 1] = recent[j];
+      recent[j] = searchseg;
+    }
+  }
+
+  /* Identical loop body to the general search in _mstl3_addmsr_impl(),
+   * run over the recent segments only, in list order */
+  for (i = 0; i < count; i++)
+  {
+    searchseg = recent[i];
+
+    /* Done searching when segment starts beyond the record end plus tolerance */
+    if (searchseg->starttime > endtime + nsperiod + nstimetol)
+      break;
+
+    /* Skip segments with no time coverage, these cannot be extended */
+    if (!SEGMENT_HAS_TIME_COVERAGE (searchseg))
+      continue;
+
+    /* Done searching if autohealing and record exactly matches a segment */
+    if (autoheal && msr->starttime == searchseg->starttime && endtime == searchseg->endtime)
+    {
+      followseg = searchseg;
+      break;
+    }
+
+    if (msr->starttime > searchseg->starttime)
+      followseg = searchseg;
+
+    if (!segbefore)
+    {
+      postgap = msr->starttime - searchseg->endtime - nsperiod;
+
+      if (postgap <= nstimetol && postgap >= nnstimetol &&
+          IS_SAMPRATE_SIMILAR (sampratehz, searchseg->samprate, sampratetol))
+        segbefore = searchseg;
+    }
+
+    if (!segafter)
+    {
+      pregap = searchseg->starttime - endtime - nsperiod;
+
+      if (pregap <= nstimetol && pregap >= nnstimetol &&
+          IS_SAMPRATE_SIMILAR (sampratehz, searchseg->samprate, sampratetol))
+        segafter = searchseg;
+    }
+
+    /* Done searching if both before and after segments are found */
+    if (segbefore && segafter)
+      break;
+    /* Done searching if not autohealing and one match found */
+    else if (!autoheal && (segbefore || segafter))
+      break;
+  }
+
+  /* If nothing matched, followseg must be the globally latest-starting
+   * coverage segment before the record, which may be outside the recent
+   * set: walk backward from the list end, skipping segments that start
+   * at/after the record (necessarily recent, already considered above) or
+   * that lack coverage. */
+  if (!segbefore && !segafter && !followseg)
+  {
+    int hops;
+
+    searchseg = idnode->id.last;
+
+    for (hops = 0; searchseg && hops < LM_RECENTSEGS_MAXWALK; hops++)
+    {
+      if (SEGMENT_HAS_TIME_COVERAGE (searchseg) && searchseg->starttime < msr->starttime)
+      {
+        followseg = searchseg;
+        break;
+      }
+
+      searchseg = searchseg->prev;
+    }
+
+    /* Walk bound exceeded without resolving followseg, refuse the shortcut */
+    if (!followseg && searchseg)
+      return 0;
+  }
+
+  *psegbefore = segbefore;
+  *psegafter = segafter;
+  *pfollowseg = followseg;
+
+  return 1;
+} /* End of lm_scan_recent() */
 
 /***************************************************************************
  * Implementation of MS3TraceList addition functions
@@ -336,12 +634,12 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
   /* If no matching ID was found create new MS3TraceID and MS3TraceSeg entries */
   if (!id)
   {
-    if (!(id = (MS3TraceID *)libmseed_memory.malloc (sizeof (MS3TraceID))))
+    if (!(id = (MS3TraceID *)libmseed_memory.malloc (sizeof (LMTraceIDNode))))
     {
       ms_log (2, "Error allocating memory\n");
       return NULL;
     }
-    memset (id, 0, sizeof (MS3TraceID));
+    memset (id, 0, sizeof (LMTraceIDNode));
 
     /* Populate MS3TraceID */
     memcpy (id->sid, msr->sid, sizeof (id->sid));
@@ -349,6 +647,9 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
     id->earliest = msr->starttime;
     id->latest = endtime;
     id->numsegments = 1;
+
+    /* End-time bound starts below any possible end time, recent set starts empty */
+    ((LMTraceIDNode *)id)->nonrecentendbound = INT64_MIN;
 
     if (!(seg = lm_msr2seg (msr, endtime)))
     {
@@ -358,7 +659,7 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
     id->first = id->last = seg;
 
     /* Add MS3RecordPtr if requested */
-    if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 1)))
+    if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 1, flags)))
     {
       lm_free_segment_memory (seg, 0);
       libmseed_memory.free (id);
@@ -366,7 +667,7 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
     }
 
     /* Add new MS3TraceID to MS3TraceList */
-    if (mstl3_addID (mstl, id, previd) == NULL)
+    if (lm_addID (mstl, id, previd) == NULL)
     {
       ms_log (2, "Error adding new ID to trace list\n");
       lm_free_segment_memory (seg, 0);
@@ -382,7 +683,17 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
 
     /* Calculate high-precision time tolerance */
     if (tolerance && tolerance->time)
-      nstimetol = (nstime_t)(NSTMODULUS * tolerance->time (msr));
+    {
+      double timetol = tolerance->time (msr);
+
+      if (timetol < 0.0)
+      {
+        ms_log (1, "%s: Ignoring negative time tolerance (%g), using default\n", msr->sid, timetol);
+        nstimetol = (nstime_t)(0.5 * nsperiod);
+      }
+      else
+        nstimetol = (nstime_t)(NSTMODULUS * timetol);
+    }
     else
       nstimetol = (nstime_t)(0.5 * nsperiod); /* Default time tolerance is 1/2 sample period */
 
@@ -390,7 +701,16 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
 
     /* Calculate sample rate tolerance */
     if (tolerance && tolerance->samprate)
+    {
       sampratetol = tolerance->samprate (msr);
+
+      if (sampratetol < 0.0)
+      {
+        ms_log (1, "%s: Ignoring negative sample rate tolerance (%g), using default\n", msr->sid,
+                sampratetol);
+        sampratetol = -1.0; /* Restore default sentinel */
+      }
+    }
 
     sampratehz = msr3_sampratehz (msr);
 
@@ -426,8 +746,13 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
         id->latest = endtime;
 
       /* Add MS3RecordPtr if requested */
-      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 1)))
+      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 1, flags)))
+      {
+        /* seg's end time was already extended above; keep the end-time bound valid */
+        if (!((LMTraceListNode *)mstl)->foreignid)
+          lm_endbound_fold ((LMTraceIDNode *)id, seg->endtime);
         return NULL;
+      }
     }
     /* Record coverage is after all other coverage */
     else if ((msr->starttime - nsperiod - nstimetol) > id->latest)
@@ -445,8 +770,13 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
         id->latest = endtime;
 
       /* Add MS3RecordPtr if requested */
-      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 0)))
+      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 0, flags)))
+      {
+        /* seg is already linked into the list; keep the end-time bound valid */
+        if (!((LMTraceListNode *)mstl)->foreignid)
+          lm_endbound_fold ((LMTraceIDNode *)id, seg->endtime);
         return NULL;
+      }
     }
     /* Record coverage is before all other coverage */
     else if ((endtime + nsperiod + nstimetol) < id->earliest)
@@ -464,8 +794,13 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
         id->earliest = msr->starttime;
 
       /* Add MS3RecordPtr if requested */
-      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 0)))
+      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 0, flags)))
+      {
+        /* seg is already linked into the list; keep the end-time bound valid */
+        if (!((LMTraceListNode *)mstl)->foreignid)
+          lm_endbound_fold ((LMTraceIDNode *)id, seg->endtime);
         return NULL;
+      }
     }
     /* Record coverage fits at beginning of first segment */
     else if (firstgap <= nstimetol && firstgap >= nnstimetol &&
@@ -481,7 +816,7 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
         id->earliest = msr->starttime;
 
       /* Add MS3RecordPtr if requested */
-      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 2)))
+      if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 2, flags)))
         return NULL;
     }
     /* Search complete segment list for matches */
@@ -491,57 +826,110 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
       segbefore = NULL; /* The first segment end that matches the record start (within tolerance) */
       segafter = NULL;  /* The first segment start that matches the record end (within tolerance) */
       followseg = NULL; /* The segment with latest start time before the record start */
-      searchseg = id->first;
-      while (searchseg)
+
+      /* A zero rate record cannot match segbefore/segafter without an explicit
+       * tolerance, so only followseg is needed: search backward from the last segment. */
+      if (sampratehz == 0.0 && sampratetol < 0.0)
       {
-        /* Skip segments with no time coverage, these cannot be extended */
-        if (!SEGMENT_HAS_TIME_COVERAGE (searchseg))
+        searchseg = id->last;
+        while (searchseg)
         {
+          /* Skip segments with no time coverage, these cannot be extended */
+          if (!SEGMENT_HAS_TIME_COVERAGE (searchseg))
+          {
+            searchseg = searchseg->prev;
+            continue;
+          }
+
+          /* Done searching if autohealing and record exactly matches a segment.
+           *
+           * Rationale: autohealing would have combined this segment
+           * with another if that were possible, so this record will
+           * also not fit with any other segment. */
+          if (autoheal && msr->starttime == searchseg->starttime && endtime == searchseg->endtime)
+          {
+            followseg = searchseg;
+            break;
+          }
+
+          /* Done searching at the first (i.e. latest) segment starting before the record */
+          if (searchseg->starttime < msr->starttime)
+          {
+            followseg = searchseg;
+            break;
+          }
+
+          searchseg = searchseg->prev;
+        }
+      }
+      /* If every segment outside the recent set is provably too old to match,
+       * the recent set alone determines the result of the search below. */
+      else if (!((LMTraceListNode *)mstl)->foreignid &&
+               (msr->starttime - nsperiod - nstimetol) > ((LMTraceIDNode *)id)->nonrecentendbound &&
+               lm_scan_recent ((LMTraceIDNode *)id, msr, endtime, nsperiod, nstimetol, nnstimetol,
+                               sampratehz, sampratetol, autoheal, &segbefore, &segafter,
+                               &followseg))
+      {
+        /* segbefore, segafter and followseg set by lm_scan_recent() */
+      }
+      else
+      {
+        searchseg = id->first;
+        while (searchseg)
+        {
+          /* Done searching when segment starts beyond the record end plus tolerance */
+          if (searchseg->starttime > endtime + nsperiod + nstimetol)
+            break;
+
+          /* Skip segments with no time coverage, these cannot be extended */
+          if (!SEGMENT_HAS_TIME_COVERAGE (searchseg))
+          {
+            searchseg = searchseg->next;
+            continue;
+          }
+
+          /* Done searching if autohealing and record exactly matches a segment.
+           *
+           * Rationale: autohealing would have combined this segment
+           * with another if that were possible, so this record will
+           * also not fit with any other segment. */
+          if (autoheal && msr->starttime == searchseg->starttime && endtime == searchseg->endtime)
+          {
+            followseg = searchseg;
+            break;
+          }
+
+          if (msr->starttime > searchseg->starttime)
+            followseg = searchseg;
+
+          if (!segbefore)
+          {
+            postgap = msr->starttime - searchseg->endtime - nsperiod;
+
+            if (postgap <= nstimetol && postgap >= nnstimetol &&
+                IS_SAMPRATE_SIMILAR (sampratehz, searchseg->samprate, sampratetol))
+              segbefore = searchseg;
+          }
+
+          if (!segafter)
+          {
+            pregap = searchseg->starttime - endtime - nsperiod;
+
+            if (pregap <= nstimetol && pregap >= nnstimetol &&
+                IS_SAMPRATE_SIMILAR (sampratehz, searchseg->samprate, sampratetol))
+              segafter = searchseg;
+          }
+
+          /* Done searching if both before and after segments are found */
+          if (segbefore && segafter)
+            break;
+          /* Done searching if not autohealing and one match found */
+          else if (!autoheal && (segbefore || segafter))
+            break;
+
           searchseg = searchseg->next;
-          continue;
-        }
-
-        /* Done searching if autohealing and record exactly matches a segment.
-         *
-         * Rationale: autohealing would have combined this segment
-         * with another if that were possible, so this record will
-         * also not fit with any other segment. */
-        if (autoheal && msr->starttime == searchseg->starttime && endtime == searchseg->endtime)
-        {
-          followseg = searchseg;
-          break;
-        }
-
-        if (msr->starttime > searchseg->starttime)
-          followseg = searchseg;
-
-        if (!segbefore)
-        {
-          postgap = msr->starttime - searchseg->endtime - nsperiod;
-
-          if (postgap <= nstimetol && postgap >= nnstimetol &&
-              IS_SAMPRATE_SIMILAR (sampratehz, searchseg->samprate, sampratetol))
-            segbefore = searchseg;
-        }
-
-        if (!segafter)
-        {
-          pregap = searchseg->starttime - endtime - nsperiod;
-
-          if (pregap <= nstimetol && pregap >= nnstimetol &&
-              IS_SAMPRATE_SIMILAR (sampratehz, searchseg->samprate, sampratetol))
-            segafter = searchseg;
-        }
-
-        /* Done searching if both before and after segments are found */
-        if (segbefore && segafter)
-          break;
-        /* Done searching if not autohealing and one match found */
-        else if (!autoheal && (segbefore || segafter))
-          break;
-
-        searchseg = searchseg->next;
-      } /* Done looping through segments */
+        } /* Done looping through segments */
+      }
 
       /* Add MS3Record coverage to end of segment before */
       if (segbefore)
@@ -552,8 +940,11 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
         }
 
         /* Add MS3RecordPtr if requested */
-        if (pprecptr && !(*pprecptr = lm_add_recordptr (segbefore, msr, endtime, 1)))
+        if (pprecptr && !(*pprecptr = lm_add_recordptr (segbefore, msr, endtime, 1, flags)))
         {
+          /* segbefore's end time was already extended above; keep the end-time bound valid */
+          if (!((LMTraceListNode *)mstl)->foreignid)
+            lm_endbound_fold ((LMTraceIDNode *)id, segbefore->endtime);
           return NULL;
         }
 
@@ -563,6 +954,8 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
           /* Add segafter coverage to segbefore */
           if (!lm_addsegtoseg (segbefore, segafter))
           {
+            if (!((LMTraceListNode *)mstl)->foreignid)
+              lm_endbound_fold ((LMTraceIDNode *)id, segbefore->endtime);
             return NULL;
           }
 
@@ -575,6 +968,10 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
             segafter->prev->next = segafter->next;
           if (segafter->next)
             segafter->next->prev = segafter->prev;
+
+          /* Drop segafter from the recent set before it is freed */
+          if (!((LMTraceListNode *)mstl)->foreignid)
+            lm_recentseg_remove ((LMTraceIDNode *)id, segafter);
 
           /* Free all memory associated with the segment after that has been merged */
           lm_free_segment_memory (segafter, 1);
@@ -593,7 +990,7 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
         }
 
         /* Add MS3RecordPtr if requested */
-        if (pprecptr && !(*pprecptr = lm_add_recordptr (segafter, msr, endtime, 2)))
+        if (pprecptr && !(*pprecptr = lm_add_recordptr (segafter, msr, endtime, 2, flags)))
         {
           return NULL;
         }
@@ -610,7 +1007,7 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
         }
 
         /* Add MS3RecordPtr if requested */
-        if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 0)))
+        if (pprecptr && !(*pprecptr = lm_add_recordptr (seg, msr, endtime, 0, flags)))
         {
           /* seg is not yet linked into the segment list, free it directly */
           lm_free_segment_memory (seg, 0);
@@ -707,6 +1104,13 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
       id->last = segbefore;
   }
 
+  /* Track the most-recently-active segments to bound future searches */
+  if (seg && !((LMTraceListNode *)mstl)->foreignid)
+  {
+    lm_recentseg_touch ((LMTraceIDNode *)id, seg);
+    lm_recentseg_touch ((LMTraceIDNode *)id, id->last);
+  }
+
   /* Store update time at seg.prvtptr, allocate if needed */
   if (seg && flags & MSF_PPUPDATETIME)
   {
@@ -772,6 +1176,7 @@ _mstl3_addmsr_impl (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr **ppr
  * @parblock
  *  - @c ::MSF_PPUPDATETIME : Store update time (as nstime_t) at ::MS3TraceSeg.prvtptr
  *  - @c ::MSF_SPLITISVERSION : Use @p splitversion as the version, otherwise use msr->pubversion
+ *  - @c ::MSF_RECORDLIST_NOEXTRAS : Do not copy extra headers into record list entries
  * @endparblock
  * @param[in] tolerance Tolerance function pointers as ::MS3Tolerance
  *
@@ -826,6 +1231,7 @@ mstl3_addmsr_recordptr (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr *
  * If the ::MSF_RECORDLIST flag is set in @p flags, a ::MS3RecordList
  * will be built for each ::MS3TraceSeg.  The ::MS3RecordPtr entries
  * contain the location of the data record, bit flags, extra headers, etc.
+ * Extra headers are omitted if ::MSF_RECORDLIST_NOEXTRAS is also set.
  *
  * @param[in] ppmstl Pointer-to-point to destination MS3TraceList
  * @param[in] buffer Source buffer to read miniSEED records from
@@ -834,6 +1240,7 @@ mstl3_addmsr_recordptr (MS3TraceList *mstl, const MS3Record *msr, MS3RecordPtr *
  * @param[in] flags Flags to control parsing and optional functionality:
  * @parblock
  *  - @c ::MSF_RECORDLIST : Build a ::MS3RecordList for each ::MS3TraceSeg
+ *  - @c ::MSF_RECORDLIST_NOEXTRAS : Do not copy extra headers into record list entries
  *  - Flags supported by msr3_parse()
  *  - Flags supported by mstl3_addmsr()
  * @endparblock
@@ -869,6 +1276,7 @@ mstl3_readbuffer (MS3TraceList **ppmstl, const char *buffer, uint64_t bufferleng
  * If the ::MSF_RECORDLIST flag is set in @p flags, a ::MS3RecordList
  * will be built for each ::MS3TraceSeg.  The ::MS3RecordPtr entries
  * contain the location of the data record, bit flags, extra headers, etc.
+ * Extra headers are omitted if ::MSF_RECORDLIST_NOEXTRAS is also set.
  *
  * If @p selections is not NULL, the ::MS3Selections will be used to
  * limit what is returned to the caller.  Any data not matching the
@@ -881,6 +1289,7 @@ mstl3_readbuffer (MS3TraceList **ppmstl, const char *buffer, uint64_t bufferleng
  * @param[in] flags Flags to control parsing and optional functionality:
  * @parblock
  *  - @c ::MSF_RECORDLIST : Build a ::MS3RecordList for each ::MS3TraceSeg
+ *  - @c ::MSF_RECORDLIST_NOEXTRAS : Do not copy extra headers into record list entries
  *  - Flags supported by msr3_parse()
  *  - Flags supported by mstl3_addmsr()
  * @endparblock
@@ -929,7 +1338,7 @@ mstl3_readbuffer_selection (MS3TraceList **ppmstl, const char *buffer, uint64_t 
   if ((flags & MSF_UNPACKDATA) && selections)
     pflags &= ~(MSF_UNPACKDATA);
 
-  while ((bufferlength - offset) > MINRECLEN)
+  while ((bufferlength - offset) >= MINRECLEN)
   {
     parsevalue = msr3_parse (buffer + offset, bufferlength - offset, &msr, pflags, verbose);
 
@@ -997,6 +1406,7 @@ mstl3_readbuffer_selection (MS3TraceList **ppmstl, const char *buffer, uint64_t 
       }
 
       recordptr->bufferptr = buffer + offset;
+      recordptr->msr->record = buffer + offset;
       recordptr->fileptr = NULL;
       recordptr->filename = NULL;
       recordptr->fileoffset = 0;
@@ -1334,7 +1744,8 @@ lm_addsegtoseg (MS3TraceSeg *seg1, MS3TraceSeg *seg2)
  * @see mstl3_addmsr()
  ***************************************************************************/
 static MS3RecordPtr *
-lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime, int8_t whence)
+lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime, int8_t whence,
+                  uint32_t flags)
 {
   MS3RecordPtr *recordptr = NULL;
 
@@ -1359,7 +1770,7 @@ lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime, int8
   }
 
   memset (recordptr, 0, sizeof (MS3RecordPtr));
-  recordptr->msr = msr3_duplicate (msr, 0);
+  recordptr->msr = msr3_duplicate_extra (msr, 0, (flags & MSF_RECORDLIST_NOEXTRAS) ? 0 : 1);
   recordptr->endtime = endtime;
 
   if (recordptr->msr == NULL)
@@ -1369,6 +1780,9 @@ lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime, int8
     return NULL;
   }
 
+  /* The duplicated record pointer is only valid if re-established by the caller */
+  recordptr->msr->record = NULL;
+
   /* If no record list for the segment is present, allocate and add record pointer */
   if (seg->recordlist == NULL)
   {
@@ -1377,6 +1791,7 @@ lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime, int8
     if (seg->recordlist == NULL)
     {
       ms_log (2, "Cannot allocate memory\n");
+      msr3_free (&recordptr->msr);
       libmseed_memory.free (recordptr);
       return NULL;
     }
@@ -1407,6 +1822,39 @@ lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime, int8
   return recordptr;
 } /* End of lm_add_recordptr() */
 
+/***************************************************************************
+ * Test that a floating point sample value can be converted to a 32-bit
+ * integer, and when truncation is not allowed that no sub-integer precision
+ * is lost.  The sourcetype is the singular sample type name for messages.
+ *
+ * The range is tested before any conversion because casting a non-finite or
+ * out-of-range value to an integer is undefined.
+ *
+ * Returns 0 if the value can be converted, otherwise -1.
+ ***************************************************************************/
+static int
+lm_check_int32_sample (double value, int8_t truncate, const char *sourcetype)
+{
+  double rounded = value + (value >= 0 ? 0.5 : -0.5);
+
+  /* Written as a positive range test so NaN, which compares false, is rejected */
+  if (!(rounded > (double)INT32_MIN - 1.0 && rounded < (double)INT32_MAX + 1.0))
+  {
+    ms_log (2, "Cannot convert %s sample value to a 32-bit integer: %g\n", sourcetype, value);
+    return -1;
+  }
+
+  /* Check for loss of sub-integer */
+  if (!truncate && fabs (value - (int32_t)value) > 0.000001)
+  {
+    ms_log (2, "Loss of precision when converting %ss to integers, loss: %g\n", sourcetype,
+            fabs (value - (int32_t)value));
+    return -1;
+  }
+
+  return 0;
+} /* End of lm_check_int32_sample() */
+
 /** ************************************************************************
  * @brief Convert the data samples associated with an MS3TraceSeg to another
  * data type
@@ -1426,6 +1874,10 @@ lm_add_recordptr (MS3TraceSeg *seg, const MS3Record *msr, nstime_t endtime, int8
  * detected an error is returned.  Loss of precision is determined by
  * testing that the absolute difference between the floating point value
  * and the (truncated) integer value is greater than 0.000001.
+ *
+ * A value that is not representable as a 32-bit integer, including NaN and
+ * the infinities, is an error regardless of the @p truncate flag.  On error
+ * the data samples are left unmodified.
  *
  * @param[in] seg The target ::MS3TraceSeg to convert
  * @param[in] type The desired data sample type:
@@ -1464,6 +1916,12 @@ mstl3_convertsamples (MS3TraceSeg *seg, char type, int8_t truncate)
     return -1;
   }
 
+  if (type != 'i' && type != 'f' && type != 'd')
+  {
+    ms_log (2, "Unsupported target sample type: %c\n", type);
+    return -1;
+  }
+
   idata = (int32_t *)seg->datasamples;
   fdata = (float *)seg->datasamples;
   ddata = (double *)seg->datasamples;
@@ -1473,35 +1931,27 @@ mstl3_convertsamples (MS3TraceSeg *seg, char type, int8_t truncate)
   {
     if (seg->sampletype == 'f') /* Convert floats to integers with simple rounding */
     {
+      /* Check all values first, the conversion is in place and a rejected
+       * value must not leave the buffer partially converted */
       for (idx = 0; idx < seg->numsamples; idx++)
-      {
-        /* Check for loss of sub-integer */
-        if (!truncate && fabs (fdata[idx] - (int32_t)fdata[idx]) > 0.000001)
-        {
-          ms_log (2, "Loss of precision when converting floats to integers, loss: %g\n",
-                  fabs (fdata[idx] - (int32_t)fdata[idx]));
+        if (lm_check_int32_sample (fdata[idx], truncate, "float"))
           return -1;
-        }
 
-        /* Round to nearest integer, handling positive and negative values */
+      /* Round to nearest integer, handling positive and negative values */
+      for (idx = 0; idx < seg->numsamples; idx++)
         idata[idx] = (int32_t)(fdata[idx] + (fdata[idx] >= 0 ? 0.5 : -0.5));
-      }
     }
     else if (seg->sampletype == 'd') /* Convert doubles to integers with simple rounding */
     {
+      /* Check all values first, the conversion is in place and a rejected
+       * value must not leave the buffer partially converted */
       for (idx = 0; idx < seg->numsamples; idx++)
-      {
-        /* Check for loss of sub-integer */
-        if (!truncate && fabs (ddata[idx] - (int32_t)ddata[idx]) > 0.000001)
-        {
-          ms_log (2, "Loss of precision when converting doubles to integers, loss: %g\n",
-                  fabs (ddata[idx] - (int32_t)ddata[idx]));
+        if (lm_check_int32_sample (ddata[idx], truncate, "double"))
           return -1;
-        }
 
-        /* Round to nearest integer, handling positive and negative values */
+      /* Round to nearest integer, handling positive and negative values */
+      for (idx = 0; idx < seg->numsamples; idx++)
         idata[idx] = (int32_t)(ddata[idx] + (ddata[idx] >= 0 ? 0.5 : -0.5));
-      }
 
       /* Reallocate buffer for reduced size needed, only if not pre-allocating */
       if (libmseed_prealloc_block_size == 0)
@@ -1555,7 +2005,17 @@ mstl3_convertsamples (MS3TraceSeg *seg, char type, int8_t truncate)
   /* Convert to 64-bit doubles */
   else if (type == 'd')
   {
-    if (!(ddata = (double *)libmseed_memory.malloc ((size_t)(seg->numsamples * sizeof (double)))))
+    size_t datasize;
+
+    if (seg->numsamples < 0 || (uint64_t)seg->numsamples > SIZE_MAX / sizeof (double))
+    {
+      ms_log (2, "Data buffer size overflow for %" PRId64 " samples\n", seg->numsamples);
+      return -1;
+    }
+
+    datasize = (size_t)seg->numsamples * sizeof (double);
+
+    if (!(ddata = (double *)libmseed_memory.malloc (datasize)))
     {
       ms_log (2, "Cannot allocate buffer for sample conversion to doubles\n");
       return -1;
@@ -1577,7 +2037,7 @@ mstl3_convertsamples (MS3TraceSeg *seg, char type, int8_t truncate)
     }
 
     seg->datasamples = ddata;
-    seg->datasize = seg->numsamples * sizeof (double);
+    seg->datasize = datasize;
     seg->sampletype = 'd';
   } /* Done converting to 64-bit doubles */
 
@@ -1740,7 +2200,13 @@ mstl3_unpack_recordlist (MS3TraceID *id, MS3TraceSeg *seg, void *output, uint64_
   }
 
   /* Calculate buffer size needed for unpacked samples */
-  decodedsize = seg->samplecnt * samplesize;
+  if (seg->samplecnt < 0 || (uint64_t)seg->samplecnt > SIZE_MAX / samplesize)
+  {
+    ms_log (2, "%s: Data buffer size overflow for %" PRId64 " samples\n", id->sid, seg->samplecnt);
+    return -1;
+  }
+
+  decodedsize = (uint64_t)seg->samplecnt * samplesize;
 
   /* If output buffer is supplied, check needed size */
   if (output)
@@ -1843,6 +2309,7 @@ mstl3_unpack_recordlist (MS3TraceID *id, MS3TraceSeg *seg, void *output, uint64_
             ms_log (2, "%s: Cannot open file (%s): %s\n", id->sid, recordptr->filename,
                     strerror (errno));
 
+            libmseed_memory.free (filelistptr);
             totalunpackedsamples = -1;
             break;
           }
@@ -1859,7 +2326,9 @@ mstl3_unpack_recordlist (MS3TraceID *id, MS3TraceSeg *seg, void *output, uint64_
       /* Allocate memory if needed, over-allocating (x2) to minimize reallocation */
       if (recordptr->msr->reclen > filebuffersize)
       {
-        if ((filebuffer = libmseed_memory.realloc (filebuffer, recordptr->msr->reclen * 2)) == NULL)
+        void *resized = libmseed_memory.realloc (filebuffer, recordptr->msr->reclen * 2);
+
+        if (resized == NULL)
         {
           ms_log (2, "%s: Cannot allocate memory for file read buffer\n", id->sid);
 
@@ -1867,6 +2336,7 @@ mstl3_unpack_recordlist (MS3TraceID *id, MS3TraceSeg *seg, void *output, uint64_
           break;
         }
 
+        filebuffer = resized;
         filebuffersize = recordptr->msr->reclen * 2;
       }
 
@@ -2060,22 +2530,17 @@ _mstl3_pack_callback (MS3TraceList *mstl, void (*record_handler) (char *, int, v
  * the ::MSF_FLUSHDATA flag to pack all data in the trace list.
  *
  * <b>Use as a rolling buffer to generate data records:</b>
- * The behavior of adjusting the trace list as data are packed is
- * intended to allow using a ::MS3TraceList as an intermediate
- * collection of data buffers to generate data records from an
- * arbitrarily large data source, e.g. continuous data.  In this
- * pattern, data are added to a ::MS3TraceList and mstl3_pack() is
- * called repeatedly.  Data records are only produced if a complete
- * record can be generated, which often leaves small amounts of data
- * in each segment buffer.  On completion or shutdown the caller
- * usually makes a final call to mst3_pack() with the ::MSF_FLUSHDATA
- * flag set to flush all data from the buffers.  Implementing finer
- * control of when data records are generated, such as a time tolerance,
- * can be done using mstraceseg3_pack() directly.
+ * A ::MS3TraceList can be used as an intermediate collection of data
+ * buffers to generate data records from an arbitrarily large data
+ * source, e.g. continuous data. For this pattern use mstl3_pack_init()
+ * and mstl3_pack_next(), instead of mstl3_pack(). See the
+ * lm_pack_rollingbuffer.c example.  If using this function for a
+ * continuous data source, you must set the ::MSF_FLUSHDATA flag on a
+ * final call to pack all data in the buffer.
  *
  * As each record is filled and finished they are passed to @p
- * record_handler() which should expect 1) a @c char* to the record,
- * 2) the length of the record and 3) a pointer supplied by the
+ * record_handler() callback which should expect 1) a @c char* to the
+ * record, 2) the length of the record and 3) a pointer supplied by the
  * original caller containing optional private data (@p handlerdata).
  * It is the responsibility of @p record_handler() to process the
  * record, the memory will be re-used or freed when @p
@@ -2089,6 +2554,11 @@ _mstl3_pack_callback (MS3TraceList *mstl, void (*record_handler) (char *, int, v
  * If @p extra is not NULL it is expected to contain extraheaders, a
  * string containing (compact) JSON, that will be added to each output
  * record.
+ *
+ * When packed data are removed from a segment, the new segment start
+ * time is projected using the apparent sample rate implied by the
+ * segment start and end times, falling back to the nominal rate when
+ * they are inconsistent.
  *
  * @param[in] mstl ::MS3TraceList containing data to pack
  * @param[in] record_handler() Callback function called for each record
@@ -2109,6 +2579,8 @@ _mstl3_pack_callback (MS3TraceList *mstl, void (*record_handler) (char *, int, v
  *
  * @ref MessageOnError - this function logs a message on error
  *
+ * @see mstl3_pack_init()
+ * @see mstl3_pack_next()
  * @see mstl3_pack_segment()
  * @see msr3_pack()
  ***************************************************************************/
@@ -2120,6 +2592,33 @@ mstl3_pack (MS3TraceList *mstl, void (*record_handler) (char *, int, void *), vo
   return _mstl3_pack_callback (mstl, record_handler, handlerdata, reclen, encoding, packedsamples,
                                flags, verbose, extra, 0);
 }
+
+/***************************************************************************
+ * Calculate a new segment start time after packed samples are removed
+ * from the front of the segment.
+ *
+ * The start time is projected using the apparent sample period implied
+ * by the segment start and end times, which distributes small timing
+ * skew proportionally and avoids accumulating rounding drift across
+ * repeated packing.  If the apparent rate is not within tolerance of
+ * the nominal rate, the nominal rate is used instead.
+ ***************************************************************************/
+static nstime_t
+lm_packed_starttime (const MS3TraceSeg *seg, int64_t packedsamples)
+{
+  if (seg->numsamples >= 2 && seg->endtime > seg->starttime && seg->samprate != 0.0)
+  {
+    double apparent_period =
+        (double)(seg->endtime - seg->starttime) / (double)(seg->numsamples - 1);
+    double nominal_period = (seg->samprate > 0.0) ? (double)NSTMODULUS / seg->samprate
+                                                  : (double)NSTMODULUS * -seg->samprate;
+
+    if (MS_ISRATETOLERABLE (apparent_period, nominal_period))
+      return seg->starttime + (nstime_t)((double)packedsamples * apparent_period + 0.5);
+  }
+
+  return ms_sampletime (seg->starttime, packedsamples, seg->samprate);
+} /* End of lm_packed_starttime() */
 
 /** ************************************************************************
  * @copydoc mstl3_pack()
@@ -2147,7 +2646,22 @@ mstl3_pack_ppupdate_flushidle (MS3TraceList *mstl, void (*record_handler) (char 
  * Create and initialize an opaque ::MS3TraceListPacker context for generating
  * miniSEED records one at a time from an ::MS3TraceList.
  *
+ * <b>Use as a rolling buffer to generate data records:</b>
+ * A ::MS3TraceList can be used as an intermediate collection of data
+ * buffers to generate data records from an arbitrarily large or continuous
+ * data source. The final call should be made with the ::MSF_FLUSHDATA flag
+ * set to flush all data from the buffers. See the lm_pack_rollingbuffer.c
+ * example.
+ *
  * The packing state should be freed with mstl3_pack_free() when done.
+ *
+ * If ::MSF_MAINTAINMSTL is set, the trace list is not trimmed, so a partial
+ * record cannot be continued on a later call; each segment is therefore
+ * packed completely on its first visit, as if ::MSF_FLUSHDATA were also set
+ * for that segment. Scanning resumes after the last completed segment on
+ * each call, so trace IDs and segments added after that point are packed by
+ * a later call, but data added at or before it is not. See mstl3_pack_next()
+ * for the complete ::MSF_MAINTAINMSTL contract.
  *
  * If @p flush_idle_seconds is > 0, segments idle longer than the threshold will
  * be flushed automatically. This requires the ::MSF_PPUPDATETIME flag to be set
@@ -2227,6 +2741,28 @@ mstl3_pack_init (MS3TraceList *mstl, int reclen, int8_t encoding, uint32_t flags
  * will be adjusted as data are packed unless the ::MSF_MAINTAINMSTL flag is
  * specified in @p flags of mstl3_pack_init().
  *
+ * Data may be added to the trace list (e.g. with mstl3_addmsr()) between
+ * calls, i.e. after a return of 0, and packing may simply continue with
+ * the same packer.  Appending data to the segment currently being packed
+ * (between calls that return 1) is also safe.  Prepending data (adding
+ * coverage before a segment's start time) to a segment that is actively
+ * being packed is not supported and will return -1; in that case the
+ * trace list itself is left intact, but samples already emitted in the
+ * aborted session have not yet been trimmed from the segment, so a new
+ * packer would emit them again as duplicates.  Likewise, adding data that
+ * merges the segment currently being packed into a neighboring segment
+ * (autohealing a gap) is not supported and will also return -1.  Add data
+ * only between calls that return 0 to avoid these cases.
+ *
+ * With ::MSF_MAINTAINMSTL, since the trace list is not trimmed, each segment
+ * is packed completely the first time it is visited and ::MSF_FLUSHDATA is
+ * implied for that segment; a partial record is never deferred.  Scanning
+ * resumes after the last completed segment on each call, so a trace ID or
+ * segment added after that point is packed by a later call.  Data added to,
+ * or before, an already-completed segment is not packed by this packer; a
+ * merge that removes the last completed segment is not supported and will
+ * return -1.
+ *
  * @param[in] packer ::MS3TraceListPacker context
  * @param[in] flags Bit flags to control packing:
  * @parblock
@@ -2250,6 +2786,7 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
   size_t extralength;
   MS3TraceID *id = NULL;
   MS3TraceSeg *seg = NULL;
+  MS3TraceSeg *resume_seg = NULL;
 
   if (!packer || !record || !reclen)
   {
@@ -2257,13 +2794,58 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
     return -1;
   }
 
-  /* If packing is finished, return immediately */
-  if (packer->finished)
-    return 0;
-
   /* If we have an active segment packing state, try to get another record from it */
   if (packer->seg_packing_state)
   {
+    /* The segment buffer may have been reallocated (moved) or grown by
+     * mstl3_addmsr() since the last call.  Appends keep already-packed
+     * samples at the front, so re-syncing the live buffer is safe.  A
+     * prepend (earlier start time) shifts packed samples and cannot be
+     * reconciled with the in-progress record offset. */
+    if (packer->current_seg)
+    {
+      /* mstl3_addmsr() may have autohealed a gap by merging current_seg
+       * into a neighboring segment and freeing it, leaving the pointer
+       * dangling.  Confirm it is still linked before dereferencing it;
+       * check by identity only against the (still-valid) trace ID's
+       * segment list, never dereferencing a possibly-freed segment. */
+      MS3TraceSeg *checkseg = packer->current_id ? packer->current_id->first : NULL;
+
+      while (checkseg && checkseg != packer->current_seg)
+        checkseg = checkseg->next;
+
+      if (!checkseg)
+      {
+        int64_t seg_total_packed = 0;
+
+        ms_log (2,
+                "%s: Segment being packed was merged or removed during active packing; "
+                "add data only between records (after a return of 0)\n",
+                packer->current_id ? packer->current_id->sid : "");
+
+        /* Retain the aborted session's count so the total does not under-report */
+        msr3_pack_free (&packer->seg_packing_state, &seg_total_packed);
+        packer->totalpackedsamples += seg_total_packed;
+
+        packer->current_id = NULL;
+        packer->current_seg = NULL;
+        return -1;
+      }
+
+      if (packer->current_seg->starttime < packer->msr_template.starttime)
+      {
+        ms_log (2,
+                "%s: Segment start time moved earlier during active packing; "
+                "add data only between records (after a return of 0)\n",
+                packer->current_id ? packer->current_id->sid : "");
+        return -1;
+      }
+
+      packer->msr_template.datasamples = packer->current_seg->datasamples;
+      packer->msr_template.numsamples = packer->current_seg->numsamples;
+      packer->msr_template.samplecnt = packer->current_seg->samplecnt;
+    }
+
     /* Set flags from caller */
     if (flags & MSF_FLUSHDATA)
       packer->seg_packing_state->flags |= MSF_FLUSHDATA;
@@ -2292,19 +2874,20 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
       /* If MSF_MAINTAINMSTL not set, update segment data buffer: remove packed samples */
       if ((packer->flags & MSF_MAINTAINMSTL) == 0 && seg_total_packed > 0 && packer->current_seg)
       {
-        /* Calculate new start time */
-        if (seg_total_packed == packer->current_seg->numsamples)
-          packer->current_seg->starttime = packer->current_seg->endtime;
-        else
-          packer->current_seg->starttime = ms_sampletime (
-              packer->current_seg->starttime, seg_total_packed, packer->current_seg->samprate);
-
+        /* Determine sample size before modifying the segment to avoid a partial update */
         samplesize = ms_samplesize (packer->current_seg->sampletype);
         if (!samplesize)
         {
           ms_log (2, "Unknown sample size for sample type: %c\n", packer->current_seg->sampletype);
           return -1;
         }
+
+        /* Calculate new start time, shortcut when all samples have been packed */
+        if (seg_total_packed == packer->current_seg->numsamples)
+          packer->current_seg->starttime = packer->current_seg->endtime;
+        else
+          packer->current_seg->starttime =
+              lm_packed_starttime (packer->current_seg, seg_total_packed);
 
         packer->current_seg->samplecnt -= seg_total_packed;
         packer->current_seg->numsamples -= seg_total_packed;
@@ -2333,6 +2916,8 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
             packer->current_seg->datasamples = resized;
             packer->current_seg->datasize = (uint64_t)bufsize;
           }
+
+          lm_update_id_extent (packer->current_id);
         }
         else
         {
@@ -2348,25 +2933,12 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
       }
       else if (packer->flags & MSF_MAINTAINMSTL)
       {
-        /* When maintaining the trace list, advance to next segment instead of resetting
-         * to avoid repacking the same segments */
-        if (packer->current_seg && packer->current_seg->next)
-        {
-          /* Move to next segment in current trace ID */
-          packer->current_seg = packer->current_seg->next;
-        }
-        else if (packer->current_id && packer->current_id->next[0])
-        {
-          /* Move to first segment of next trace ID */
-          packer->current_id = packer->current_id->next[0];
-          packer->current_seg = packer->current_id->first;
-        }
-        else
-        {
-          /* Reached the end of the trace list, mark as finished */
-          packer->finished = 1;
-          return 0;
-        }
+        /* Trace list is not trimmed, remember where to resume scanning */
+        packer->last_id = packer->current_id;
+        packer->last_seg = packer->current_seg;
+
+        packer->current_id = NULL;
+        packer->current_seg = NULL;
       }
 
       /* Fall through to scan for next segment to pack */
@@ -2383,11 +2955,38 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
   }
 
   /* Scan trace list to find a segment that can produce a record */
-  /* When MSF_MAINTAINMSTL is set and we have a current position, start from there;
-   * otherwise start from the beginning */
-  if ((packer->flags & MSF_MAINTAINMSTL) && packer->current_id)
+  /* When MSF_MAINTAINMSTL is set, the trace list is not trimmed, so resume
+   * scanning after the last completed segment instead of from the beginning */
+  if ((packer->flags & MSF_MAINTAINMSTL) && packer->last_seg)
   {
-    id = packer->current_id;
+    /* mstl3_addmsr() may have autohealed a gap by merging last_seg into a
+     * neighboring segment and freeing it, leaving the pointer dangling.
+     * Confirm it is still linked before dereferencing it; check by identity
+     * only against the (still-valid) trace ID's segment list, never
+     * dereferencing a possibly-freed segment. */
+    MS3TraceSeg *checkseg = packer->last_id ? packer->last_id->first : NULL;
+
+    while (checkseg && checkseg != packer->last_seg)
+      checkseg = checkseg->next;
+
+    if (!checkseg)
+    {
+      ms_log (2,
+              "%s: Last completed segment was merged or removed; "
+              "add data only between records (after a return of 0)\n",
+              packer->last_id ? packer->last_id->sid : "");
+      return -1;
+    }
+
+    if (packer->last_seg->next)
+    {
+      id = packer->last_id;
+      resume_seg = packer->last_seg->next;
+    }
+    else
+    {
+      id = packer->last_id->next[0];
+    }
   }
   else
   {
@@ -2397,14 +2996,8 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
   for (; id; id = id->next[0])
   {
     /* Determine starting segment for this trace ID */
-    if ((packer->flags & MSF_MAINTAINMSTL) && id == packer->current_id && packer->current_seg)
-    {
-      seg = packer->current_seg;
-    }
-    else
-    {
-      seg = id->first;
-    }
+    seg = (resume_seg) ? resume_seg : id->first;
+    resume_seg = NULL;
 
     for (; seg; seg = seg->next)
     {
@@ -2417,6 +3010,11 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
       packer->current_seg = seg;
 
       uint32_t segment_flags = packer->flags;
+
+      /* The trace list is not trimmed in maintain mode, so a partial record
+       * cannot be continued later; pack all samples from each segment */
+      if (packer->flags & MSF_MAINTAINMSTL)
+        segment_flags |= MSF_FLUSHDATA;
 
       /* If flush_idle_nanoseconds is set and the segment has a prvtptr with an
        * update time set during parsing with the ::MSF_PPUPDATETIME flag, check if
@@ -2437,6 +3035,9 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
                     (double)update_latency / NSTMODULUS);
         }
       }
+
+      /* Clear borrowed extra headers pointer so msr3_init() does not free it */
+      packer->msr_template.extra = NULL;
 
       /* Initialize MS3Record template from segment */
       msr3_init (&packer->msr_template);
@@ -2516,8 +3117,8 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
         return -1;
       }
 
-      /* result == 0: Segment couldn't produce a record (not enough data without flush)
-       * Free the packing state and continue scanning for another segment */
+      /* result == 0: Segment couldn't produce a record (not enough data without flush).
+       * Free the packing state and continue scanning for another segment. */
       msr3_pack_free (&packer->seg_packing_state, NULL);
       packer->current_id = NULL;
       packer->current_seg = NULL;
@@ -2539,7 +3140,10 @@ mstl3_pack_next (MS3TraceListPacker *packer, uint32_t flags, char **record, int3
  * pointer to NULL.
  *
  * @param[in] packer Pointer to ::MS3TraceListPacker pointer
- * @param[out] packedsamples Total number of samples packed, returned to caller
+ * @param[out] packedsamples Total number of samples packed, returned to caller.
+ * This includes samples already emitted in records by a segment session that
+ * is still in progress. Such samples are not removed from the trace list,
+ * since that trimming normally happens only when a segment session finishes.
  *
  * @see mstl3_pack_init()
  * @see mstl3_pack_next()
@@ -2550,15 +3154,17 @@ mstl3_pack_free (MS3TraceListPacker **packer, int64_t *packedsamples)
   if (!packer || !*packer)
     return;
 
-  if (packedsamples)
-    *packedsamples = (*packer)->totalpackedsamples;
-
-  /* Free segment packer if still active */
+  /* Fold in samples from an active segment session before reporting */
   if ((*packer)->seg_packing_state)
   {
-    int64_t seg_samples;
+    int64_t seg_samples = 0;
+
     msr3_pack_free (&(*packer)->seg_packing_state, &seg_samples);
+    (*packer)->totalpackedsamples += seg_samples;
   }
+
+  if (packedsamples)
+    *packedsamples = (*packer)->totalpackedsamples;
 
   libmseed_memory.free (*packer);
   *packer = NULL;
@@ -2572,6 +3178,11 @@ mstl3_pack_free (MS3TraceListPacker **packer, int64_t *packedsamples)
  * ::MSF_MAINTAINMSTL flag is specified in @p flags. If
  * ::MSF_MAINTAINMSTL is specified a caller would also normally set
  * the ::MSF_FLUSHDATA flag to pack all data in the trace list.
+ *
+ * When packed data are removed from a segment, the new segment start
+ * time is projected using the apparent sample rate implied by the
+ * segment start and end times, falling back to the nominal rate when
+ * they are inconsistent.
  *
  * As each record is filled and finished they are passed to @p
  * record_handler() which should expect 1) a @c char* to the record,
@@ -2710,17 +3321,18 @@ mstl3_pack_segment (MS3TraceList *mstl, MS3TraceID *id, MS3TraceSeg *seg,
   /* If MSF_MAINTAINMSTL not set, modify or remove segment accordingly */
   if ((flags & MSF_MAINTAINMSTL) == 0 && segpackedsamples > 0)
   {
-    /* Calculate new start time, shortcut when all samples have been packed */
-    if (segpackedsamples == seg->numsamples)
-      seg->starttime = seg->endtime;
-    else
-      seg->starttime = ms_sampletime (seg->starttime, segpackedsamples, seg->samprate);
-
+    /* Determine sample size before modifying the segment to avoid a partial update */
     if (!(samplesize = ms_samplesize (seg->sampletype)))
     {
       ms_log (2, "Unknown sample size for sample type: %c\n", seg->sampletype);
       return -1;
     }
+
+    /* Calculate new start time, shortcut when all samples have been packed */
+    if (segpackedsamples == seg->numsamples)
+      seg->starttime = seg->endtime;
+    else
+      seg->starttime = lm_packed_starttime (seg, segpackedsamples);
 
     seg->samplecnt -= segpackedsamples;
     seg->numsamples -= segpackedsamples;
@@ -2748,6 +3360,8 @@ mstl3_pack_segment (MS3TraceList *mstl, MS3TraceID *id, MS3TraceSeg *seg,
         seg->datasize = (uint64_t)bufsize;
       }
     }
+
+    lm_update_id_extent (id);
   }
 
   totalpackedrecords += segpackedrecords;
@@ -3208,10 +3822,15 @@ lm_remove_segment (MS3TraceList *mstl, MS3TraceID *id, MS3TraceSeg *seg, int8_t 
   /* Decrement segment count */
   id->numsegments -= 1;
 
+  /* Drop the segment from the recent set before it is freed */
+  if (!((LMTraceListNode *)mstl)->foreignid)
+    lm_recentseg_remove ((LMTraceIDNode *)id, seg);
+
   /* Free all memory associated with the segment */
   lm_free_segment_memory (seg, freeprvtptr);
 
-  /* If this was the last segment, remove the TraceID from the trace list */
+  /* If this was the last segment, remove the TraceID from the trace list,
+   * otherwise refresh its earliest/latest extent from the remaining segments */
   if (id->numsegments == 0)
   {
     /* Find previous nodes at each level for this TraceID */
@@ -3260,8 +3879,33 @@ lm_remove_segment (MS3TraceList *mstl, MS3TraceID *id, MS3TraceSeg *seg, int8_t 
     /* Decrement trace count */
     mstl->numtraceids--;
   }
+  else
+  {
+    lm_update_id_extent (id);
+  }
 
   return 0;
+}
+
+/* Refresh a TraceID's earliest/latest fields from all of its segments */
+static void
+lm_update_id_extent (MS3TraceID *id)
+{
+  MS3TraceSeg *seg;
+
+  if (!id || !id->first)
+    return;
+
+  id->earliest = id->first->starttime;
+  id->latest = id->first->endtime;
+
+  for (seg = id->first->next; seg; seg = seg->next)
+  {
+    if (seg->starttime < id->earliest)
+      id->earliest = seg->starttime;
+    if (seg->endtime > id->latest)
+      id->latest = seg->endtime;
+  }
 }
 
 /* Pseudo random number generator, as a linear congruential generator (LCG):

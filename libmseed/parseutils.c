@@ -235,7 +235,8 @@ ms3_detect (const char *record, uint64_t recbuflen, uint8_t *formatversion)
 
     /* Loop through blockettes as long as number is non-zero and the 4-byte
      * blockette header (type and next offset) is fully within the buffer */
-    while (blkt_offset != 0 && blkt_offset > 47 && (uint64_t)blkt_offset + 4 <= recbuflen)
+    while (blkt_offset != 0 && blkt_offset >= MS2FSDH_LENGTH &&
+           (uint64_t)blkt_offset + 4 <= recbuflen)
     {
       memcpy (&blkt_type, record + blkt_offset, 2);
       memcpy (&next_blkt, record + blkt_offset + 2, 2);
@@ -837,11 +838,20 @@ ms_parse_raw2 (const char *record, int maxreclen, int8_t details, int8_t swapfla
         ms_log (0, "              next blockette: %u\n", next_blkt);
       }
 
+      /* Ensure that Blockette 2000 length field is within buffer before ms2_blktlen() call */
+      if (blkt_type == 2000 && (uint64_t)blkt_offset + 6 > maxreclen)
+      {
+        ms_log (2, "%s: Blockette 2000 length field extends beyond record size, truncated?\n", sid);
+        retval++;
+        break;
+      }
+
       blkt_length = ms2_blktlen (blkt_type, record + blkt_offset, swapflag);
       if (blkt_length == 0)
       {
         ms_log (2, "%s: Unknown blockette length for type %d\n", sid, blkt_type);
         retval++;
+        break;
       }
 
       /* Track end of blockette chain */
@@ -1302,6 +1312,16 @@ ms_parse_raw2 (const char *record, int maxreclen, int8_t details, int8_t swapfla
       {
         char order[40];
 
+        /* The fixed B2000 header (through the number-of-headers field) spans 15
+         * bytes; a declared blockette length shorter than this would otherwise
+         * allow the field reads below to run past the buffer */
+        if ((uint64_t)blkt_offset + 15 > maxreclen)
+        {
+          ms_log (2, "%s: Blockette 2000 header extends beyond record size, truncated?\n", sid);
+          retval++;
+          break;
+        }
+
         /* Big or little endian? */
         if (*pMS2B2000_BYTEORDER (record + blkt_offset) == 0)
           strncpy (order, "Little endian", sizeof (order) - 1);
@@ -1379,7 +1399,7 @@ ms_parse_raw2 (const char *record, int maxreclen, int8_t details, int8_t swapfla
       }
 
       /* Sanity check the next blockette offset */
-      if (next_blkt && next_blkt <= endofblockettes)
+      if (next_blkt && (next_blkt == blkt_offset || next_blkt <= endofblockettes))
       {
         ms_log (2, "%s: Next blockette offset (%d) is within current blockette ending at byte %d\n",
                 sid, next_blkt, endofblockettes);
