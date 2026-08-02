@@ -162,6 +162,42 @@ class TestMSeed3(unittest.TestCase):
             self.assertEqual(frame["pktid"], pktid)
             self.assertEqual(frame["payload"], record)
 
+    # -- SeedLink v3 delivery --------------------------------------------------
+
+    def test_seedlink_v3_client_skips_mseed3(self):
+        # A client that never negotiates "SLPROTO 4.0" is protocol 3.x and
+        # must never receive miniSEED 3 records: SLStreamPackets() silently
+        # skips them. Subscribe to the whole station (no SELECT, so both
+        # the v2 BHZ and v3 BHN streams are eligible) and verify only the
+        # v2 backlog is delivered.
+        start_pktid = self.bhz2_records[0][0]
+
+        conn = self._slconn()
+        self.assertEqual(conn.cmd("STATION TEST XX"), "OK")
+        self.assertEqual(conn.cmd(f"DATA {start_pktid:06x}"), "OK")
+        conn.sendline("END")
+
+        received = []
+        conn.sock.settimeout(2)
+        while True:
+            try:
+                frame = conn.recv_v3()
+            except socket.timeout:
+                break
+            self.assertEqual(frame["kind"], "data")
+            received.append(frame["record"])
+
+        # Every delivered record must be miniSEED 2: not a v3 record, and
+        # carrying a v2 data-record indicator at offset 6.
+        for record in received:
+            self.assertNotEqual(record[0:3], b"MS\x03", record[0:8])
+            self.assertIn(record[6:7], (b"D", b"R", b"Q", b"M"))
+
+        # The full v2 backlog arrived byte-for-byte; the v3 backlog did not
+        # sneak in disguised or otherwise.
+        expected_v2 = [record for _pktid, record in self.bhz2_records]
+        self.assertEqual(received, expected_v2)
+
     # -- v4 INFO --------------------------------------------------------------
 
     def test_v4_info_streams_reports_format(self):

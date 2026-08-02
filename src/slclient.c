@@ -667,6 +667,14 @@ SLStreamPackets (ClientInfo *cinfo)
       stream->convert = SLFindFilter (slinfo, cinfo->packet.streamid);
     }
 
+    /* Skip miniSEED v3 records for protocol 3.x clients */
+    if (slinfo->proto_major == 3 && MS3_ISVALIDHEADER (cinfo->sendbuf))
+    {
+      lprintf (3, "[%s] Skipping miniSEED v3 record for protocol 3.x client: %s",
+               cinfo->hostname, cinfo->packet.streamid);
+      skiprecord = 1;
+    }
+
     /* Perform time-windowing end time checks */
     if (cinfo->endtime != 0 && cinfo->endtime != NSTUNSET)
     {

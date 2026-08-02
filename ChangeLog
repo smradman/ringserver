@@ -11,6 +11,7 @@
 	- Add a count-only stream selection path used by DataLink MATCH/REJECT.
 	- Require authentication for DataLink READ when AuthRequiredForStreams is set
 	  and apply allowed/forbidden stream filters to READ.
+	- Skip sending miniSEED v3 records to SeedLink protocol 3.x clients.
 	- Stricter miniSEED v2/v3 record validation and hardened time-string
 	  parsing due to new libmseed changes.
 	- DataLink POSITION AFTER with no matching packet now replies OK, positioned
