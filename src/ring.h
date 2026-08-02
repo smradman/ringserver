@@ -143,6 +143,7 @@ extern int UpdatePattern (pcre2_code **code, pcre2_match_data **data,
                           const char *pattern, const char *description);
 extern pcre2_match_context *GetMatchContext (void);
 extern int GetStreams (RingReader *reader, RingStream **streams, uint32_t *count);
+extern int CountStreams (RingReader *reader, uint32_t *count);
 
 #ifdef __cplusplus
 }

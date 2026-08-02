@@ -69,8 +69,11 @@
 #define PACKETPTR(O) ((RingPacket *)(param.datastart + (O)))
 
 static int StreamIDCmp (const void *a, const void *b);
+static int StreamIDSelected (RingReader *reader, const char *streamid);
 static int SnapshotStreams (RBTree *tree, RBNode *node, RingStream **array,
                             uint32_t *count, uint32_t *capacity);
+static int SnapshotStreamIDs (RBTree *tree, RBNode *node, char (**array)[MAXSTREAMID],
+                              uint32_t *count, uint32_t *capacity);
 static inline int64_t FindOffsetForID (uint64_t pktid, nstime_t *pkttime);
 static RingStream *AddStreamIdx (RBTree *streamidx, RingStream *stream, Key **ppkey);
 static RingStream *GetStreamIdx (RBTree *streamidx, char *streamid);
@@ -1699,6 +1702,49 @@ StreamIDCmp (const void *a, const void *b)
 } /* End of StreamIDCmp() */
 
 /***************************************************************************
+ * StreamIDSelected:
+ *
+ * Test a stream ID against a reader's allowed, forbidden, match and
+ * reject expressions.
+ *
+ * If reader is NULL the stream ID is always selected.
+ *
+ * Return 1 if the stream ID is selected and 0 if it is filtered out.
+ ***************************************************************************/
+static int
+StreamIDSelected (RingReader *reader, const char *streamid)
+{
+  if (!reader)
+    return 1;
+
+  /* Test allowed expression if available, reject if NOT matched */
+  if (reader->allowed)
+    if (pcre2_match (reader->allowed, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
+                     reader->allowed_data, GetMatchContext ()) < 0)
+      return 0;
+
+  /* Test forbidden expression if available, reject if matched */
+  if (reader->forbidden)
+    if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
+                     reader->forbidden_data, GetMatchContext ()) >= 0)
+      return 0;
+
+  /* Test match expression if available, reject if NOT matched */
+  if (reader->match)
+    if (pcre2_match (reader->match, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
+                     reader->match_data, GetMatchContext ()) < 0)
+      return 0;
+
+  /* Test reject expression if available, reject if matched */
+  if (reader->reject)
+    if (pcre2_match (reader->reject, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
+                     reader->reject_data, GetMatchContext ()) >= 0)
+      return 0;
+
+  return 1;
+} /* End of StreamIDSelected() */
+
+/***************************************************************************
  * SnapshotStreams:
  *
  * Recursively walk the stream index in stream-key order, appending a
@@ -1734,6 +1780,43 @@ SnapshotStreams (RBTree *tree, RBNode *node, RingStream **array,
 
   return SnapshotStreams (tree, node->right, array, count, capacity);
 } /* End of SnapshotStreams() */
+
+/***************************************************************************
+ * SnapshotStreamIDs:
+ *
+ * Recursively walk the stream index in stream-key order, appending a
+ * memcpy() of each stream ID to *array.  The array is grown with
+ * realloc() as needed; *count and *capacity are updated in place.
+ *
+ * This must be called with param.streamlock held.
+ *
+ * Return 0 on success and -1 on error (allocation failure).
+ ***************************************************************************/
+static int
+SnapshotStreamIDs (RBTree *tree, RBNode *node, char (**array)[MAXSTREAMID],
+                   uint32_t *count, uint32_t *capacity)
+{
+  if (node == tree->nil)
+    return 0;
+
+  if (SnapshotStreamIDs (tree, node->left, array, count, capacity))
+    return -1;
+
+  if (*count == *capacity)
+  {
+    /* Defensive growth; param.streamcount should pre-size exactly */
+    uint32_t new_capacity = (*capacity) ? (*capacity) * 2 : 16;
+    char (*grown)[MAXSTREAMID] = realloc (*array, (size_t)new_capacity * sizeof (**array));
+    if (grown == NULL)
+      return -1;
+    *array    = grown;
+    *capacity = new_capacity;
+  }
+
+  memcpy (&(*array)[(*count)++], ((RingStream *)node->data)->streamid, MAXSTREAMID);
+
+  return SnapshotStreamIDs (tree, node->right, array, count, capacity);
+} /* End of SnapshotStreamIDs() */
 
 /***************************************************************************
  * GetStreams:
@@ -1796,34 +1879,8 @@ GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
    * compacting surviving entries in place. */
   for (uint32_t i = 0; i < snapshot_count; i++)
   {
-    RingStream *stream = &snapshot[i];
-
-    if (reader)
-    {
-      /* Test allowed expression if available, skip if NOT matched */
-      if (reader->allowed)
-        if (pcre2_match (reader->allowed, (PCRE2_SPTR8)stream->streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                         reader->allowed_data, GetMatchContext ()) < 0)
-          continue;
-
-      /* Test forbidden expression if available, skip if matched */
-      if (reader->forbidden)
-        if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)stream->streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                         reader->forbidden_data, GetMatchContext ()) >= 0)
-          continue;
-
-      /* Test match expression if available, skip if NOT matched */
-      if (reader->match)
-        if (pcre2_match (reader->match, (PCRE2_SPTR8)stream->streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                         reader->match_data, GetMatchContext ()) < 0)
-          continue;
-
-      /* Test reject expression if available, skip if matched */
-      if (reader->reject)
-        if (pcre2_match (reader->reject, (PCRE2_SPTR8)stream->streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                         reader->reject_data, GetMatchContext ()) >= 0)
-          continue;
-    }
+    if (!StreamIDSelected (reader, snapshot[i].streamid))
+      continue;
 
     if (kept != i)
       snapshot[kept] = snapshot[i];
@@ -1853,6 +1910,77 @@ GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
 
   return 0;
 } /* End of GetStreams() */
+
+/***************************************************************************
+ * CountStreams:
+ *
+ * Count the streams in the stream index selected by a reader's allowed,
+ * forbidden, match and reject expressions, without building or sorting
+ * a result array.
+ *
+ * If reader is NULL, or has no filter expressions compiled, this is an
+ * O(1) read of the (atomic) stream count.  Otherwise the stream IDs
+ * are snapshotted and each is tested against the reader's filters.
+ *
+ * Return 0 on success and -1 on error.
+ ***************************************************************************/
+int
+CountStreams (RingReader *reader, uint32_t *count)
+{
+  char (*snapshot)[MAXSTREAMID] = NULL;
+  uint32_t snapshot_count       = 0;
+  uint32_t snapshot_capacity;
+  uint32_t selected = 0;
+
+  if (!count)
+    return -1;
+
+  *count = 0;
+
+  /* Fast path: no filters means every indexed stream is selected */
+  if (!reader ||
+      (!reader->allowed && !reader->forbidden && !reader->match && !reader->reject))
+  {
+    *count = param.streamcount;
+    return 0;
+  }
+
+  /* Snapshot the stream IDs under streamlock as quickly as possible;
+   * PCRE2 filtering is deferred until after the lock is released. */
+  pthread_mutex_lock (&param.streamlock);
+
+  snapshot_capacity = param.streamcount ? param.streamcount : 16;
+  snapshot          = malloc ((size_t)snapshot_capacity * sizeof (*snapshot));
+  if (snapshot == NULL)
+  {
+    lprintf (0, "%s(): Error allocating snapshot", __func__);
+    pthread_mutex_unlock (&param.streamlock);
+    return -1;
+  }
+
+  if (SnapshotStreamIDs (param.streamidx, param.streamidx->root->left,
+                        &snapshot, &snapshot_count, &snapshot_capacity))
+  {
+    lprintf (0, "%s(): Error growing snapshot", __func__);
+    free (snapshot);
+    pthread_mutex_unlock (&param.streamlock);
+    return -1;
+  }
+
+  pthread_mutex_unlock (&param.streamlock);
+
+  for (uint32_t i = 0; i < snapshot_count; i++)
+  {
+    if (StreamIDSelected (reader, snapshot[i]))
+      selected++;
+  }
+
+  free (snapshot);
+
+  *count = selected;
+
+  return 0;
+} /* End of CountStreams() */
 
 /***************************************************************************
  * FindOffsetForID:
