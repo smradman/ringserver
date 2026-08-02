@@ -401,8 +401,22 @@ class StreamAuthGateTestCase(unittest.TestCase):
         self.assertIn(b"Authentication required for streaming", resp)
         self.assertEqual(conn.sock.recv(16), b"")
 
-    def test_datalink_read_not_gated(self):
+    def test_datalink_read_requires_auth(self):
         conn = self._dlconn()
+        pktid, _ = self.records[0]
+        conn.send(f"READ {pktid}")
+        header, resp = conn.recv()
+        self.assertTrue(header.startswith("ERROR"), header)
+        self.assertIn(b"Authentication required", resp)
+        self.assertEqual(conn.sock.recv(16), b"")
+
+    def test_datalink_read_after_auth(self):
+        conn = self._dlconn()
+        payload = b"alice\rsesame"
+        conn.send(f"AUTH USERPASS {len(payload)}", payload)
+        header, _ = conn.recv()
+        self.assertTrue(header.startswith("OK"), header)
+
         pktid, record = self.records[0]
         header, data = conn.read(pktid)
         self.assertTrue(header.startswith("PACKET"), header)
@@ -523,11 +537,13 @@ class StreamFilterTestCase(unittest.TestCase):
         # Interleaved backlog for two stations, written without auth.
         dl = ringtest.DataLinkConn(cls.server.port)
 
+        cls.allow_pkts = []
+        cls.secret_pkts = []
         for i in range(2):
             allow_record = ringtest.make_ms2(sta="ALLOW", chan="BHZ", seq=i)
-            dl.write(cls.ALLOW_STREAMID, allow_record)
+            cls.allow_pkts.append((dl.write(cls.ALLOW_STREAMID, allow_record), allow_record))
             secret_record = ringtest.make_ms2(sta="SECRET", chan="BHZ", seq=i + 10)
-            dl.write(cls.SECRET_STREAMID, secret_record)
+            cls.secret_pkts.append((dl.write(cls.SECRET_STREAMID, secret_record), secret_record))
         dl.close()
 
     @classmethod
@@ -586,6 +602,40 @@ class StreamFilterTestCase(unittest.TestCase):
         conn.sock.settimeout(1.5)
         with self.assertRaises(socket.timeout):
             conn.recv()
+
+    def test_read_allowed_streams_filter(self):
+        conn = self._conn()
+        header, _ = self._auth_userpass(conn, "carol", "sesame")
+        self.assertTrue(header.startswith("OK"), header)
+
+        pktid, record = self.allow_pkts[0]
+        header, data = conn.read(pktid)
+        self.assertTrue(header.startswith("PACKET"), header)
+        self.assertEqual(data, record)
+
+        secret_pktid = self.secret_pkts[0][0]
+        # READ of a filtered packet is indistinguishable from a missing one.
+        conn.send(f"READ {secret_pktid}")
+        header, resp = conn.recv()
+        self.assertTrue(header.startswith("ERROR"), header)
+        self.assertIn(b"not found", resp)
+
+    def test_read_forbidden_streams_filter(self):
+        conn = self._conn()
+        header, _ = self._auth_userpass(conn, "dave", "sesame")
+        self.assertTrue(header.startswith("OK"), header)
+
+        pktid, record = self.allow_pkts[0]
+        header, data = conn.read(pktid)
+        self.assertTrue(header.startswith("PACKET"), header)
+        self.assertEqual(data, record)
+
+        secret_pktid = self.secret_pkts[0][0]
+        # READ of a filtered packet is indistinguishable from a missing one.
+        conn.send(f"READ {secret_pktid}")
+        header, resp = conn.recv()
+        self.assertTrue(header.startswith("ERROR"), header)
+        self.assertIn(b"not found", resp)
 
 
 if __name__ == "__main__":

@@ -370,7 +370,7 @@ static const char *reference_config_file_parts[] = {
     "#AuthCommand </path/to/program> [arguments]\n"
     "\n"
     "\n",
-    "# Require authentication for a client to request streaming data.\n"
+    "# Require authentication for a client to stream or read data.\n"
     "# Default is 0 (off).\n"
     "# This is a dynamic parameter.\n"
     "# Equivalent environment variable: RS_AUTH_REQUIRED_FOR_STREAMS\n"

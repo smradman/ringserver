@@ -125,7 +125,7 @@ All of the command line parameters have config file and environment variable equ
 
 ## <a id="access-control">Access Control</a>
 
-Access control is based on IP addresses and user authentication. Authentication is optional and can be used in combination with IP address based access control.  Authentication can be required for clients requesting streaming data using the <b>AuthRequiredForStreams</b> config parameter, or <b>S_AUTH_REQUIRED_FOR_STREAMS</b> environment variable.
+Access control is based on IP addresses and user authentication. Authentication is optional and can be used in combination with IP address based access control.  Authentication can be required for clients streaming or reading data using the <b>AuthRequiredForStreams</b> config parameter, or <b>S_AUTH_REQUIRED_FOR_STREAMS</b> environment variable.
 
 The IP-based access control is specified in the config file using the following parameters:
 

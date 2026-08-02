@@ -2026,17 +2026,17 @@ StreamIDCmp (const void *a, const void *b)
 } /* End of StreamIDCmp() */
 
 /***************************************************************************
- * StreamIDSelected:
+ * RingStreamAllowed:
  *
- * Test a stream ID against a reader's allowed, forbidden, match and
- * reject expressions.
+ * Test a stream ID against a reader's allowed and forbidden
+ * expressions.
  *
- * If reader is NULL the stream ID is always selected.
+ * If reader is NULL the stream ID is always allowed.
  *
- * Return 1 if the stream ID is selected and 0 if it is filtered out.
+ * Return 1 if the stream ID is allowed and 0 if not.
  ***************************************************************************/
-static int
-StreamIDSelected (RingReader *reader, const char *streamid)
+int
+RingStreamAllowed (RingReader *reader, const char *streamid)
 {
   PCRE2_SIZE sidlen;
   pcre2_match_context *mctx;
@@ -2059,6 +2059,35 @@ StreamIDSelected (RingReader *reader, const char *streamid)
     if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)streamid, sidlen, 0, 0,
                      reader->forbidden_data, mctx) >= 0)
       return 0;
+
+  return 1;
+} /* End of RingStreamAllowed() */
+
+/***************************************************************************
+ * StreamIDSelected:
+ *
+ * Test a stream ID against a reader's allowed, forbidden, match and
+ * reject expressions.
+ *
+ * If reader is NULL the stream ID is always selected.
+ *
+ * Return 1 if the stream ID is selected and 0 if it is filtered out.
+ ***************************************************************************/
+static int
+StreamIDSelected (RingReader *reader, const char *streamid)
+{
+  PCRE2_SIZE sidlen;
+  pcre2_match_context *mctx;
+
+  if (!reader)
+    return 1;
+
+  if (!RingStreamAllowed (reader, streamid))
+    return 0;
+
+  /* Bound streamid length to slot size, in-ring streamid may not be NUL-terminated */
+  sidlen = strnlen (streamid, MAXSTREAMID);
+  mctx   = GetMatchContext ();
 
   /* Test match expression if available, reject if NOT matched */
   if (reader->match)

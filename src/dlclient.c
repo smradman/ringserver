@@ -137,6 +137,15 @@ DLHandleCmd (ClientInfo *cinfo)
   /* Determine if this is a specific read request and handle */
   else if (cmdtoken_eq_nocase (&cmd, 0, "READ"))
   {
+    /* Check for authentication requirement */
+    if (config.auth.required && !(cinfo->permissions & AUTHENTICATED))
+    {
+      lprintf (1, "[%s] Read requested from client without authentication",
+               cinfo->hostname);
+      SendPacket (cinfo, "ERROR", "Authentication required for reading, no soup for you!", 0, 1, 1);
+      return -1;
+    }
+
     cinfo->state = STATE_COMMAND;
 
     /* Any errors from HandleRead are fatal */
@@ -1165,6 +1174,13 @@ HandleRead (ClientInfo *cinfo, CmdToken *cmd)
       return -1;
   }
   else if (readid == RINGID_NONE)
+  {
+    snprintf (replystr, sizeof (replystr), "Packet %" PRIu64 " not found in ring", reqid);
+    if (SendPacket (cinfo, "ERROR", replystr, 0, 1, 1))
+      return -1;
+  }
+  /* Reply as not found when the stream is not permitted for this reader */
+  else if (!RingStreamAllowed (cinfo->reader, cinfo->packet.streamid))
   {
     snprintf (replystr, sizeof (replystr), "Packet %" PRIu64 " not found in ring", reqid);
     if (SendPacket (cinfo, "ERROR", replystr, 0, 1, 1))

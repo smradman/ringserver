@@ -6,6 +6,8 @@
 	  starts to include the earliest packet.
 	- Optimize internal stream-list Stack construction.
 	- Add a count-only stream selection path used by DataLink MATCH/REJECT.
+	- Require authentication for DataLink READ when AuthRequiredForStreams is set
+	  and apply allowed/forbidden stream filters to READ.
 	- Stricter miniSEED v2/v3 record validation and hardened time-string
 	  parsing due to new libmseed changes.
 	- Fix torn-read window in RingWrite by publishing packet header after payload.
