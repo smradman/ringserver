@@ -1,4 +1,4 @@
-.TH RINGSERVER 1 2026/04/20
+.TH RINGSERVER 1 2026/08/02
 .SH NAME
 ringserver \- stream oriented packet ring buffer
 
@@ -208,7 +208,7 @@ Authentication is optional and can be used in combination with IP
 address based access control.  Authentication can be required for
 clients streaming or reading data using the
 \fBAuthRequiredForStreams\fP config parameter, or
-\fBS_AUTH_REQUIRED_FOR_STREAMS\fP environment variable.
+\fBRS_AUTH_REQUIRED_FOR_STREAMS\fP environment variable.
 
 The IP-based access control is specified in the config file using
 the following parameters:
@@ -231,7 +231,7 @@ By default all clients are allowed access to all streams in the
 buffer, and clients with write permission are allowed to write any
 streams.  Specific clients can be limited to access or write subsets
 of streams using the \fBAllowedStreamsIP\fP config parameter.  Specific
-clients can be forbidden from accessing subsets streams using the
+clients can be forbidden from accessing subsets of streams using the
 \fBForbiddenStreamsIP\fP config parameter. These parameters
 accept a regular expression that is used to match stream IDs that the
 client(s) are allowed or forbidden.
@@ -242,13 +242,14 @@ connection information and more detailed status using the
 \fBTrustedIP\fP access control.
 
 If no client addresses are granted write permission via \fBWriteIP\fP
-or granted trusted status via \fBTrustedIP\fP then the 'localhost'
-address (local loopback) are granted those permissions.
+then the 'localhost' address (local loopback) is granted write
+permission.  Similarly, if no addresses are granted trusted status via
+\fBTrustedIP\fP then 'localhost' is granted trusted status.
 
 Access control is host range (network) based, and specified as an
 address followed by an optional prefix in CIDR notation.  For example:
-"192.168.0.1/24" specifies the range of addresses from 192.168.0.1 to
-192.168.0.254.  The address may be a hostname, which will be resolved
+"192.168.0.1/24" matches any address in the range 192.168.0.0 to
+192.168.0.255.  The address may be a hostname, which will be resolved
 on startup.  The prefix is optional and, if omitted, defaults to
 specifying only the single address.
 
@@ -261,8 +262,9 @@ using the following parameters:
 
 The \fBAuthCommand\fP config parameter specifies a command to be executed
 when a client connects to the server and requests authentication.  The
-command is executed with the USERNAME and PASSWORD environment variables
-set to the values provided by the client.  The command should return a JSON
+command is executed with the \fBAUTH_USERNAME\fP and \fBAUTH_PASSWORD\fP,
+or \fBAUTH_JWTOKEN\fP, environment variables set to the credentials
+provided by the client.  The command should return a JSON
 formatted object on stdout with the following optional keys:
 .nf
 {
@@ -279,6 +281,10 @@ to be allowed to connect.  Missing keys are treated as false or empty.
 If authentication is denied, the server sends an error response after a
 brief delay and disconnects the client.
 
+The \fBAuthTimeout\fP config parameter specifies the maximum time, in
+seconds, allowed for the authentication command to complete, default
+is 5 seconds.
+
 .SH "SeedLink Support"
 
 The legacy SeedLink protocol (v3) only transmits 512-byte miniSEED data
@@ -292,7 +298,7 @@ during SeedLink negotiation using the '?' and '*' characters for
 single or multiple character matches respectively.  Not all SeedLink
 clients support wild-carded network and station codes.
 
-SeedLink v4 clients can additionally use filters to selected streams
+SeedLink v4 clients can additionally use filters to select streams
 with labels.  See \fBOptional stream ID labels\fP for more details.
 
 .SH "Stream IDs"
@@ -300,7 +306,7 @@ with labels.  See \fBOptional stream ID labels\fP for more details.
 Each unique data stream is identified by a stream ID.  The stream ID
 can be arbitrary but is commonly a combination of a data source
 identifier and a suffix (separated by a slash) that identifies the
-the payload type.  For example:
+payload type.  For example:
 
 "FDSN:IU_COLA_00_B_H_Z/MSEED"
 
@@ -369,6 +375,13 @@ port can be set by adding flags to the port specification.  See the
 available flags in the \fBListenPort\fP description of the reference
 config file printed using the \fB-C\fP command line option.
 
+The \fBTLS\fP flag enables TLS on a listening port.  A certificate
+file and private key file must be provided using the \fBTLSCertFile\fP
+and \fBTLSKeyFile\fP config parameters (or the \fBRS_TLS_CERT_FILE\fP
+and \fBRS_TLS_KEY_FILE\fP environment variables).  Client certificate
+verification can optionally be required with the
+\fBTLSVerifyClientCert\fP config parameter.
+
 The \fBPROXYv2\fP flag enables support for the HAProxy PROXY protocol
 version 2. When this flag is set, the server will expect every client
 connection on that port to send a valid PROXY protocol v2 header before
@@ -394,7 +407,7 @@ Examples of adding flags to a port specification:
   \fBRS_LISTEN_PORT="8080 HTTP IPv6"\fP : EnvVar, HTTP on port 8080, IPv6 only
   \fBListenPort 16000 DataLink\fP       : Config file, DataLink on port 16000
   \fBListenPort 14000 TRUSTED\fP        : Config file, all protocols trusted on port 14000
-  \fBListenPort 18000 PROXYv2\fP      : Config file, all protocols with PROXYv2 on port 18000
+  \fBListenPort 18000 PROXYv2\fP        : Config file, all protocols with PROXYv2 on port 18000
 .fi
 
 .SH "HTTP Support"
@@ -418,7 +431,7 @@ The following fixed resources are supported:
   \fB/status/json\fP  - Server status in JSON, limited access*
   \fB/connections\fP  - List of connections, limited access*
   \fB/connections/json\fP - List of connections in JSON, limited access*
-  \fB/seedlink\fP     - Initiate WebSocket connection for Seedlink
+  \fB/seedlink\fP     - Initiate WebSocket connection for SeedLink
   \fB/datalink\fP     - Initiate WebSocket connection for DataLink
 .fi
 
@@ -550,7 +563,7 @@ An example access log record:
            "user_agent":"slinktool/4.1"},
  "protocol":{"name":"SeedLink","version":"4.0"},
  "event":"command","command":"DATA","match":"FDSN:IU_.*",
- "service":{"name":"ringserver","version":"4.3.1"}}
+ "service":{"name":"ringserver","version":"4.5.4"}}
 .fi
 
 .SH "External packet IDs"
@@ -703,7 +716,7 @@ respectively:
 
 \fBMSeedScan /data/miniseed/ StateFile=/opt/ringserver/scan.state\fP
 
-\fB-MSScan "/data/miniseed/ StateFile=/opt/ringserver/scan.state"\fP
+\fB-MSSCAN "/data/miniseed/ StateFile=/opt/ringserver/scan.state"\fP
 
 To limit the scanning to file names matching a certain pattern use
 the Match option, e.g. files ending in ".mseed":

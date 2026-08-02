@@ -1,23 +1,22 @@
 # ringserver — stream oriented packet ring buffer
 
-- [ringserver — stream oriented packet ring buffer](#ringserver--stream-oriented-packet-ring-buffer)
-  - [Synopsis](#synopsis)
-  - [Description](#description)
-  - [Options](#options)
-  - [Config File Parameters](#config-file-parameters)
-  - [Access Control](#access-control)
-  - [Seedlink Support](#seedlink-support)
-  - [Stream Ids](#stream-ids)
-    - [Optional Stream ID Labels](#optional-stream-id-labels)
-  - [Multi-Protocol Support](#multi-protocol-support)
-  - [HTTP Support](#http-support)
-  - [Usage Logging](#usage-logging)
-    - [Transfer Logging](#transfer-logging)
-    - [Access Logging](#access-logging)
-  - [External Packet Ids](#external-packet-ids)
-  - [Miniseed Archiving](#miniseed-archiving)
-  - [Miniseed Scanning](#miniseed-scanning)
-  - [Author](#author)
+1. [Synopsis](#synopsis)
+1. [Description](#description)
+1. [Options](#options)
+1. [Config File Parameters](#config-file-parameters)
+1. [Access Control](#access-control)
+1. [Seedlink Support](#seedlink-support)
+1. [Stream Ids](#stream-ids)
+   1. [Optional Stream ID Labels](#stream-ids-optional-stream-id-labels)
+1. [Multi-Protocol Support](#multi-protocol-support)
+1. [HTTP Support](#http-support)
+1. [Usage Logging](#usage-logging)
+   1. [Transfer Logging](#usage-logging-transfer-logging)
+   1. [Access Logging](#usage-logging-access-logging)
+1. [External Packet Ids](#external-packet-ids)
+1. [Miniseed Archiving](#miniseed-archiving)
+1. [Miniseed Scanning](#miniseed-scanning)
+1. [Author](#author)
 
 ## <a id="synopsis">Synopsis</a>
 
@@ -125,37 +124,37 @@ All of the command line parameters have config file and environment variable equ
 
 ## <a id="access-control">Access Control</a>
 
-Access control is based on IP addresses and user authentication. Authentication is optional and can be used in combination with IP address based access control.  Authentication can be required for clients streaming or reading data using the <b>AuthRequiredForStreams</b> config parameter, or <b>S_AUTH_REQUIRED_FOR_STREAMS</b> environment variable.
+Access control is based on IP addresses and user authentication. Authentication is optional and can be used in combination with IP address based access control.  Authentication can be required for clients streaming or reading data using the <b>AuthRequiredForStreams</b> config parameter, or <b>RS_AUTH_REQUIRED_FOR_STREAMS</b> environment variable.
 
 The IP-based access control is specified in the config file using the following parameters:
 
 ```
-  \fBAcceptIP\fP or \fBRS_ACCEPT_IP\fP
-  \fBDenyIP\fP or \fBRS_DENY_IP\fP
-  \fBAllowedStreamsIP\fP or \fBRS_ALLOWED_STREAMS_IP\fP
-  \fBForbiddenStreamsIP\fP or \fBRS_FORBIDDEN_STREAMS_IP\fP
-  \fBWriteIP\fP or \fBRS_WRITE_IP\fP
-  \fBTrustedIP\fP or \fBRS_TRUSTED_IP\fP
+  AcceptIP or RS_ACCEPT_IP
+  DenyIP or RS_DENY_IP
+  AllowedStreamsIP or RS_ALLOWED_STREAMS_IP
+  ForbiddenStreamsIP or RS_FORBIDDEN_STREAMS_IP
+  WriteIP or RS_WRITE_IP
+  TrustedIP or RS_TRUSTED_IP
 ```
 
 By default all clients are allowed to connect.  Specific clients can be rejected using the <b>DenyIP</b> config parameter.  If any <b>AcceptIP</b> config parameters are specified only addresses that match one of the entries, and are not rejected, are allowed to connect.
 
-By default all clients are allowed access to all streams in the buffer, and clients with write permission are allowed to write any streams.  Specific clients can be limited to access or write subsets of streams using the <b>AllowedStreamsIP</b> config parameter.  Specific clients can be forbidden from accessing subsets streams using the <b>ForbiddenStreamsIP</b> config parameter. These parameters accept a regular expression that is used to match stream IDs that the client(s) are allowed or forbidden.
+By default all clients are allowed access to all streams in the buffer, and clients with write permission are allowed to write any streams.  Specific clients can be limited to access or write subsets of streams using the <b>AllowedStreamsIP</b> config parameter.  Specific clients can be forbidden from accessing subsets of streams using the <b>ForbiddenStreamsIP</b> config parameter. These parameters accept a regular expression that is used to match stream IDs that the client(s) are allowed or forbidden.
 
 By default all clients are allowed to request the server ID, simple status and list of streams.  Specific clients can be allowed to access connection information and more detailed status using the <b>TrustedIP</b> access control.
 
-If no client addresses are granted write permission via <b>WriteIP</b> or granted trusted status via <b>TrustedIP</b> then the 'localhost' address (local loopback) are granted those permissions.
+If no client addresses are granted write permission via <b>WriteIP</b> then the 'localhost' address (local loopback) is granted write permission.  Similarly, if no addresses are granted trusted status via <b>TrustedIP</b> then 'localhost' is granted trusted status.
 
-Access control is host range (network) based, and specified as an address followed by an optional prefix in CIDR notation.  For example: "192.168.0.1/24" specifies the range of addresses from 192.168.0.1 to 192.168.0.254.  The address may be a hostname, which will be resolved on startup.  The prefix is optional and, if omitted, defaults to specifying only the single address.
+Access control is host range (network) based, and specified as an address followed by an optional prefix in CIDR notation.  For example: "192.168.0.1/24" matches any address in the range 192.168.0.0 to 192.168.0.255.  The address may be a hostname, which will be resolved on startup.  The prefix is optional and, if omitted, defaults to specifying only the single address.
 
 The authentication-based access control is specified in the config file using the following parameters:
 
 ```
-  \fBAuthCommand\fP or \fBRS_AUTH_COMMAND\fP
-  \fBAuthTimeout\fP or \fBRS_AUTH_TIMEOUT\fP
+  AuthCommand or RS_AUTH_COMMAND
+  AuthTimeout or RS_AUTH_TIMEOUT
 ```
 
-The <b>AuthCommand</b> config parameter specifies a command to be executed when a client connects to the server and requests authentication.  The command is executed with the USERNAME and PASSWORD environment variables set to the values provided by the client.  The command should return a JSON formatted object on stdout with the following optional keys:
+The <b>AuthCommand</b> config parameter specifies a command to be executed when a client connects to the server and requests authentication.  The command is executed with the <b>AUTH_USERNAME</b> and <b>AUTH_PASSWORD</b>, or <b>AUTH_JWTOKEN</b>, environment variables set to the credentials provided by the client.  The command should return a JSON formatted object on stdout with the following optional keys:
 
 ```
 {
@@ -167,7 +166,9 @@ The <b>AuthCommand</b> config parameter specifies a command to be executed when 
 }
 ```
 
-The <b>authenticated</b> key must be present and set to true for the client to be allowed to connect.  Missing keys are treated as false or empty.  If authentication is denied, the server sends an error response after a brief delay and disconnects the client.
+The <b>authenticated</b> key must be present and set to true for the client to be allowed to connect.  Missing keys are treated as false or empty. If authentication is denied, the server sends an error response after a brief delay and disconnects the client.
+
+The <b>AuthTimeout</b> config parameter specifies the maximum time, in seconds, allowed for the authentication command to complete, default is 5 seconds.
 
 ## <a id="seedlink-support">Seedlink Support</a>
 
@@ -175,11 +176,11 @@ The legacy SeedLink protocol (v3) only transmits 512-byte miniSEED data records.
 
 This server supports the wild-carding of network and station codes during SeedLink negotiation using the '?' and '*' characters for single or multiple character matches respectively.  Not all SeedLink clients support wild-carded network and station codes.
 
-SeedLink v4 clients can additionally use filters to selected streams with labels.  See <b>Optional stream ID labels</b> for more details.
+SeedLink v4 clients can additionally use filters to select streams with labels.  See <b>Optional stream ID labels</b> for more details.
 
 ## <a id="stream-ids">Stream Ids</a>
 
-Each unique data stream is identified by a stream ID.  The stream ID can be arbitrary but is commonly a combination of a data source identifier and a suffix (separated by a slash) that identifies the the payload type.  For example:
+Each unique data stream is identified by a stream ID.  The stream ID can be arbitrary but is commonly a combination of a data source identifier and a suffix (separated by a slash) that identifies the payload type.  For example:
 
 "FDSN:IU_COLA_00_B_H_Z/MSEED"
 
@@ -188,10 +189,10 @@ For the SeedLink protocol support, data source IDs must be valid FDSN Source IDs
 The stream ID suffix recommendations are as follows:
 
 ```
-  \fBMSEED\fP   : miniSEED v2 data records
-  \fBMSEED3\fP  : miniSEED v3 data records
-  \fBJSON\fP    : JSON payloads
-  \fBTEXT\fP    : Text payloads, where UTF-8 is assumed
+  MSEED   : miniSEED v2 data records
+  MSEED3  : miniSEED v3 data records
+  JSON    : JSON payloads
+  TEXT    : Text payloads, where UTF-8 is assumed
 ```
 
 The maximum length of stream IDs supported by the server is 63 bytes.
@@ -207,7 +208,7 @@ Labels are used to partition streams that would otherwise share the same FDSN So
 Labeled streams are <b>not</b> served to SeedLink clients by default: a client must explicitly request them using the SeedLink v4 SELECT syntax with a <b>:LABEL</b> suffix, for example:
 
 ```
-  \fBSELECT *_B_H_?:1SEC\fP
+  SELECT *_B_H_?:1SEC
 ```
 
 The '?' and '*' glob wildcards are accepted in the label portion.  A SELECT without a <b>:LABEL</b> suffix matches only unlabeled streams for the given pattern.
@@ -224,6 +225,8 @@ Both IPv4 and IPv6 protocol families are supported by default (if supported by t
 
 The network protocols and families allowed by any given listening port can be set by adding flags to the port specification.  See the available flags in the <b>ListenPort</b> description of the reference config file printed using the <b>-C</b> command line option.
 
+The <b>TLS</b> flag enables TLS on a listening port.  A certificate file and private key file must be provided using the <b>TLSCertFile</b> and <b>TLSKeyFile</b> config parameters (or the <b>RS_TLS_CERT_FILE</b> and <b>RS_TLS_KEY_FILE</b> environment variables).  Client certificate verification can optionally be required with the <b>TLSVerifyClientCert</b> config parameter.
+
 The <b>PROXYv2</b> flag enables support for the HAProxy PROXY protocol version 2. When this flag is set, the server will expect every client connection on that port to send a valid PROXY protocol v2 header before any actual protocol data. This allows the server to determine the true source address and port of the connecting client, as often required when the traffic flows through a trusted proxy or load balancer. <b>Important:</b> The PROXY protocol should only be enabled on ports that are exclusively reachable by trusted proxies since the client may specify any IP address in the PROXY header, potentially spoofing their source address. Do not use the PROXYv2 flag on publicly accessible ports.
 
 The <b>TRUSTED</b> flag grants trusted status to all clients connecting on a port, allowing access to detailed server status and connection information.  <b>WARNING:</b> Do not use this flag on publicly accessible ports as it grants elevated access to all connecting clients regardless of their IP address.
@@ -231,12 +234,12 @@ The <b>TRUSTED</b> flag grants trusted status to all clients connecting on a por
 Examples of adding flags to a port specification:
 
 ```
-  \fB-L "18000 SeedLink HTTP"\fP        : CLI, SeedLink and HTTP on port 18000
-  \fB-SL "18500 TLS IPv4"\fP            : CLI, SeedLink via TLS on port 18500, IPv4 only
-  \fBRS_LISTEN_PORT="8080 HTTP IPv6"\fP : EnvVar, HTTP on port 8080, IPv6 only
-  \fBListenPort 16000 DataLink\fP       : Config file, DataLink on port 16000
-  \fBListenPort 14000 TRUSTED\fP        : Config file, all protocols trusted on port 14000
-  \fBListenPort 18000 PROXYv2\fP      : Config file, all protocols with PROXYv2 on port 18000
+  -L "18000 SeedLink HTTP"        : CLI, SeedLink and HTTP on port 18000
+  -SL "18500 TLS IPv4"            : CLI, SeedLink via TLS on port 18500, IPv4 only
+  RS_LISTEN_PORT="8080 HTTP IPv6" : EnvVar, HTTP on port 8080, IPv6 only
+  ListenPort 16000 DataLink       : Config file, DataLink on port 16000
+  ListenPort 14000 TRUSTED        : Config file, all protocols trusted on port 14000
+  ListenPort 18000 PROXYv2        : Config file, all protocols with PROXYv2 on port 18000
 ```
 
 ## <a id="http-support">HTTP Support</a>
@@ -246,17 +249,17 @@ The server will respond to HTTP requests for a few fixed resources. If the <b>We
 The following fixed resources are supported:
 
 ```
-  \fB/id\fP           - Server identification
-  \fB/id/json\fP      - Server identification in JSON
-  \fB/streams\fP      - List of available streams with time range
-  \fB/streams/json\fP - List of available streams with time range in JSON
-  \fB/streamids\fP    - List of available streams
-  \fB/status\fP       - Server status, limited access*
-  \fB/status/json\fP  - Server status in JSON, limited access*
-  \fB/connections\fP  - List of connections, limited access*
-  \fB/connections/json\fP - List of connections in JSON, limited access*
-  \fB/seedlink\fP     - Initiate WebSocket connection for Seedlink
-  \fB/datalink\fP     - Initiate WebSocket connection for DataLink
+  /id           - Server identification
+  /id/json      - Server identification in JSON
+  /streams      - List of available streams with time range
+  /streams/json - List of available streams with time range in JSON
+  /streamids    - List of available streams
+  /status       - Server status, limited access*
+  /status/json  - Server status in JSON, limited access*
+  /connections  - List of connections, limited access*
+  /connections/json - List of connections in JSON, limited access*
+  /seedlink     - Initiate WebSocket connection for SeedLink
+  /datalink     - Initiate WebSocket connection for DataLink
 ```
 
 Access to the <b>status</b> and <b>connections</b> information is limited to clients that have trusted permission.
@@ -278,8 +281,8 @@ The <b>UsageLogTX</b> and <b>UsageLogRX</b> config file parameters (or their <b>
 Log files are named with the interval time window, for example:
 
 ```
-  \fBtxlog-20260316T0000-20260317T0000\fP
-  \fBrxlog-20260316T0000-20260317T0000\fP
+  txlog-20260316T0000-20260317T0000
+  rxlog-20260316T0000-20260317T0000
 ```
 
 Entries are only written for clients that transmitted or received data; clients with no activity in a given direction are omitted from the respective log file.
@@ -293,7 +296,7 @@ In text format, each TX or RX log file contains entries with this pattern:
 2) One or more data lines of the following form:
 
 ```
-\fB[Stream ID] [bytes] [packets]\fP
+[Stream ID] [bytes] [packets]
 ```
 
 3) An "END CLIENT" line including the total bytes for this entry.
@@ -316,7 +319,7 @@ Access logging is enabled by default when <b>UsageLogDirectory</b> (or the <b>-U
 Access log files are always written in JSON Lines format, one JSON object per line, with a <b>.jsonl</b> extension.  Files are named:
 
 ```
-  \fBaccesslog-20260316T0000-20260317T0000.jsonl\fP
+  accesslog-20260316T0000-20260317T0000.jsonl
 ```
 
 Each access log record contains the event time, client metadata (IP address, hostname, server port, user agent), authentication details if applicable, protocol information (name, version, TLS, WebSocket), and the event or command details.
@@ -324,18 +327,18 @@ Each access log record contains the event time, client metadata (IP address, hos
 The following events are logged:
 
 ```
-  \fBconnect\fP    - Client TCP connection established
-  \fBdisconnect\fP - Client connection closed
-  \fBcommand\fP    - Key protocol command received
+  connect    - Client TCP connection established
+  disconnect - Client connection closed
+  command    - Key protocol command received
 ```
 
 Key commands recorded include:
 
 ```
-  \fBINFO\fP         - SeedLink or DataLink INFO request (with item/type)
-  \fBDATA\fP/\fBFETCH\fP  - SeedLink data streaming request (with stream selection criteria)
-  \fBSTREAM\fP       - DataLink streaming start (with stream selection criteria)
-  \fBGET\fP          - HTTP GET request (with path)
+  INFO         - SeedLink or DataLink INFO request (with item/type)
+  DATA/FETCH  - SeedLink data streaming request (with stream selection criteria)
+  STREAM       - DataLink streaming start (with stream selection criteria)
+  GET          - HTTP GET request (with path)
 ```
 
 For DATA/FETCH and STREAM commands, the <b>match</b> and <b>reject</b> fields in the JSON record contain the regular expressions used to select streams, if any were specified by the client.
@@ -348,7 +351,7 @@ An example access log record:
            "user_agent":"slinktool/4.1"},
  "protocol":{"name":"SeedLink","version":"4.0"},
  "event":"command","command":"DATA","match":"FDSN:IU_.*",
- "service":{"name":"ringserver","version":"4.3.1"}}
+ "service":{"name":"ringserver","version":"4.5.4"}}
 ```
 
 ## <a id="external-packet-ids">External Packet Ids</a>
@@ -368,25 +371,25 @@ Using either the <b>-MSWRITE</b> command line option or the <b>MSeedWrite</b> co
 The archive <i>format</i> argument is expanded for each packet processed using the following flags:
 
 ```
-  \fBn\fP : network code, white space removed
-  \fBs\fP : station code, white space removed
-  \fBl\fP : location code, white space removed
-  \fBc\fP : channel code, white space removed
-  \fBq\fP : record quality indicator (D,R,Q,M), single character
-  \fBY\fP : year, 4 digits
-  \fBy\fP : year, 2 digits zero padded
-  \fBj\fP : day of year, 3 digits zero padded
-  \fBH\fP : hour, 2 digits zero padded
-  \fBM\fP : minute, 2 digits zero padded
-  \fBS\fP : second, 2 digits zero padded
-  \fBF\fP : fractional seconds, 4 digits zero padded
-  \fBD\fP : current year-day time stamp of the form YYYYDDD
-  \fBL\fP : data record length in bytes
-  \fBr\fP : sample rate (Hz) as a rounded integer
-  \fBR\fP : sample rate (Hz) as a float with 6 digit precision
-  \fBh\fP : host name of client submitting data
-  \fB%\fP : the percent (%) character
-  \fB#\fP : the number (#) character
+  n : network code, white space removed
+  s : station code, white space removed
+  l : location code, white space removed
+  c : channel code, white space removed
+  q : record quality indicator (D,R,Q,M), single character
+  Y : year, 4 digits
+  y : year, 2 digits zero padded
+  j : day of year, 3 digits zero padded
+  H : hour, 2 digits zero padded
+  M : minute, 2 digits zero padded
+  S : second, 2 digits zero padded
+  F : fractional seconds, 4 digits zero padded
+  D : current year-day time stamp of the form YYYYDDD
+  L : data record length in bytes
+  r : sample rate (Hz) as a rounded integer
+  R : sample rate (Hz) as a float with 6 digit precision
+  h : host name of client submitting data
+  % : the percent (%) character
+  # : the number (#) character
 ```
 
 The flags are prefaced with either the <b>%</b> or <b>#</b> modifier. The <b>%</b> modifier indicates a defining flag while the <b>#</b> indicates a non-defining flag.  All received packets with the same set of defining flags will be saved to the same file. Non-defining flags will be expanded using the values in the first packet received for the resulting file name.
@@ -398,12 +401,12 @@ Files are created with (permission) mode 666 and directories are created with mo
 Some preset archive layouts are available:
 
 ```
-  \fBBUD\fP   : \fI%n/%s/%s.%n.%l.%c.%Y.%j\fP  (BUD layout)
-  \fBCHAN\fP  : \fI%n.%s.%l.%c\fP  (channel)
-  \fBQCHAN\fP : \fI%n.%s.%l.%c.%q\fP  (quality-channel-day)
-  \fBCDAY\fP  : \fI%n.%s.%l.%c.%Y:%j:#H:#M:#S\fP  (channel-day)
-  \fBSDAY\fP  : \fI%n.%s.%Y:%j\fP  (station-day)
-  \fBHSDAY\fP : \fI%h/%n.%s.%Y:%j\fP  (host-station-day)
+  BUD   : %n/%s/%s.%n.%l.%c.%Y.%j  (BUD layout)
+  CHAN  : %n.%s.%l.%c  (channel)
+  QCHAN : %n.%s.%l.%c.%q  (quality-channel-day)
+  CDAY  : %n.%s.%l.%c.%Y:%j:#H:#M:#S  (channel-day)
+  SDAY  : %n.%s.%Y:%j  (station-day)
+  HSDAY : %h/%n.%s.%Y:%j  (host-station-day)
 ```
 
 The preset archive layouts are used by prefixing a target directory with the preset identifier followed by an '@' character.  For example:
@@ -437,11 +440,11 @@ Using either the <b>-MSSCAN</b> command line option or the <b>MSeedScan</b> conf
 Sub-options can be used to control the scanning process.  The sub-options are specified on the same line as the scan directory as key-value pairs separated by an equals '=' character and may not contain spaces (because they are separated by spaces).  Do not use quotes for the values.  The available sub-options are:
 
 ```
-  \fBStateFile\fP : File to save scanning state through restarts
-  \fBMatch\fP : Regular expression to match file names
-  \fBReject\fP : Regular expression to reject file names
-  \fBInitCurrentState\fP : Initialize scanning to current state
-  \fBMaxRecurse\fP : Maximum recursion depth (default is no limit)
+  StateFile : File to save scanning state through restarts
+  Match : Regular expression to match file names
+  Reject : Regular expression to reject file names
+  InitCurrentState : Initialize scanning to current state
+  MaxRecurse : Maximum recursion depth (default is no limit)
 ```
 
 Except for special cases the <b>StateFile</b> option should always be specified, otherwise a restart of the server could re-read data records that it has already read.
@@ -459,7 +462,7 @@ To scan a data directory and save the scanning state to a StateFile configure th
 
 <b>MSeedScan /data/miniseed/ StateFile=/opt/ringserver/scan.state</b>
 
-<b>-MSScan "/data/miniseed/ StateFile=/opt/ringserver/scan.state"</b>
+<b>-MSSCAN "/data/miniseed/ StateFile=/opt/ringserver/scan.state"</b>
 
 To limit the scanning to file names matching a certain pattern use the Match option, e.g. files ending in ".mseed":
 
@@ -474,4 +477,4 @@ EarthScope Data Services
 
 ---
 
-*Generated from man page dated 2026/04/20.*
+*Generated from man page dated 2026/08/02.*
