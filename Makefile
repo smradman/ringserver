@@ -32,7 +32,7 @@ src: $(SUBDIRS)
 
 # Run test suite against the built binary
 test: all
-	python3 -m unittest discover -s test -v
+	python3 -m unittest discover -s tests -v
 
 install:
 	@echo
