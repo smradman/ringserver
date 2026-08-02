@@ -117,6 +117,7 @@ TLSConfigure (ClientInfo *cinfo)
     }
   }
 
+  mbedtls_net_init (&tlsctx->client_fd);
   tlsctx->client_fd.fd = cinfo->socket;
   mbedtls_ssl_init (&tlsctx->ssl);
   mbedtls_ssl_config_init (&tlsctx->conf);
@@ -220,8 +221,11 @@ TLSConfigure (ClientInfo *cinfo)
       return -1;
     }
 
-    /* Wait for socket availability for 1 second */
-    PollSocket (cinfo->socket, 1, 1, 1000);
+    /* Wait for socket availability in the direction mbedtls needs */
+    if (ret == MBEDTLS_ERR_SSL_WANT_WRITE)
+      PollSocket (cinfo->socket, 0, 1, 1000);
+    else
+      PollSocket (cinfo->socket, 1, 0, 1000);
   }
 
   if (config.tlsverifyclientcert)

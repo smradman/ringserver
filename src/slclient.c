@@ -212,13 +212,26 @@ SLHandleCmd (ClientInfo *cinfo)
     /* If no stations specified convert any global selectors to regexes */
     if (slinfo->stationcount == 0 && slinfo->selectors)
     {
-      if (StationToRegex (NULL, slinfo->selectors,
-                          &(cinfo->matchstr), &(cinfo->rejectstr)))
+      char *newmatch  = NULL;
+      char *newreject = NULL;
+
+      if (StationToRegex (NULL, slinfo->selectors, &newmatch, &newreject))
       {
         lprintf (0, "[%s] Error with StationToRegex", cinfo->hostname);
         SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error with StationToRegex()");
+        free (newmatch);
+        free (newreject);
         return -1;
       }
+
+      /* Publish under cthreads_lock: INFO CONNECTIONS reads matchstr/rejectstr
+       * while holding this lock (infojson.c). */
+      pthread_mutex_lock (&param.cthreads_lock);
+      free (cinfo->matchstr);
+      cinfo->matchstr = newmatch;
+      free (cinfo->rejectstr);
+      cinfo->rejectstr = newreject;
+      pthread_mutex_unlock (&param.cthreads_lock);
     }
     /* Loop through any specified stations to:
      * 1) Configure regexes
@@ -230,6 +243,8 @@ SLHandleCmd (ClientInfo *cinfo)
       Stack *stack;
       RBNode *rbnode;
       nstime_t newesttime = NSTUNSET;
+      char *newmatch  = NULL;
+      char *newreject = NULL;
 
       /* Save reader position values to restore after any errors */
       int64_t saved_pktoffset = cinfo->reader->pktoffset;
@@ -245,10 +260,13 @@ SLHandleCmd (ClientInfo *cinfo)
 
         /* Configure regexes for this station */
         if (StationToRegex ((const char *)rbnode->key, stationid->selectors,
-                            &(cinfo->matchstr), &(cinfo->rejectstr)))
+                            &newmatch, &newreject))
         {
           lprintf (0, "[%s] Error with StationToRegex", cinfo->hostname);
           SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error with StationToRegex()");
+          StackDestroy (stack, 0);
+          free (newmatch);
+          free (newreject);
           return -1;
         }
 
@@ -299,6 +317,15 @@ SLHandleCmd (ClientInfo *cinfo)
       cinfo->reader->pktoffset = saved_pktoffset;
       cinfo->reader->pktid     = saved_pktid;
       cinfo->reader->pkttime   = saved_pkttime;
+
+      /* Publish under cthreads_lock: INFO CONNECTIONS reads matchstr/rejectstr
+       * while holding this lock (infojson.c). */
+      pthread_mutex_lock (&param.cthreads_lock);
+      free (cinfo->matchstr);
+      cinfo->matchstr = newmatch;
+      free (cinfo->rejectstr);
+      cinfo->rejectstr = newreject;
+      pthread_mutex_unlock (&param.cthreads_lock);
     }
 
     lprintf (2, "[%s] Requesting match: '%s', reject: '%s'", cinfo->hostname,
@@ -527,9 +554,10 @@ SLFindFilter (const SLInfo *slinfo, const char *streamid)
  * SeedLink, e.g. miniSEED, but the size is returned to the caller
  * to indicate that a packet was available.
  *
- * Return packet size processed on successful read from ring, zero
- * when no next packet is available, or negative value on error.  On
- * error the client should disconnected.
+ * Return packet size processed (or 1 for a zero-length packet) on
+ * successful read from ring, zero when no next packet is available,
+ * or negative value on error.  On error the client should
+ * disconnected.
  ***********************************************************************/
 int
 SLStreamPackets (ClientInfo *cinfo)
@@ -566,7 +594,8 @@ SLStreamPackets (ClientInfo *cinfo)
       return 0;
     }
   }
-  else if ((MS2_ISVALIDHEADER (cinfo->sendbuf) ||
+  else if (cinfo->packet.datasize > 0 &&
+           (MS2_ISVALIDHEADER (cinfo->sendbuf) ||
             MS3_ISVALIDHEADER (cinfo->sendbuf)))
   {
     lprintf (3, "[%s] Read %s (%u bytes) packet ID %" PRIu64 " from ring",
@@ -682,13 +711,14 @@ SLStreamPackets (ClientInfo *cinfo)
       cinfo->txpackets0++;
       cinfo->txbytes0 += cinfo->packet.datasize;
     }
-    else
-    {
-      readid = RINGID_NONE;
-    }
+    /* Otherwise the record was skipped, but a packet was still consumed
+     * from the ring; fall through and report it below */
   }
 
-  return (readid != RINGID_NONE) ? (int)cinfo->packet.datasize : 0;
+  /* A packet was consumed from the ring even if it was skipped or
+   * zero-length; report nonzero so the caller does not apply the
+   * no-data throttle. */
+  return (cinfo->packet.datasize > 0) ? (int)cinfo->packet.datasize : 1;
 } /* End of SLStreamPackets() */
 
 /***********************************************************************
@@ -2000,6 +2030,8 @@ HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
         {
           lprintf (0, "[%s] Error with StationToRegex", cinfo->hostname);
           SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error with StationToRegex()");
+          free (matchregex);
+          free (rejectregex);
           return -1;
         }
       }
@@ -2018,6 +2050,8 @@ HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
         {
           lprintf (0, "[%s] Error with StationToRegex", cinfo->hostname);
           SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error with StationToRegex()");
+          free (matchregex);
+          free (rejectregex);
           return -1;
         }
       }
@@ -2244,7 +2278,8 @@ SendRecord (RingPacket *packet, char *record, uint32_t reclen, void *vcinfo)
     /* Otherwise use the stream ID as the station ID */
     else
     {
-      memcpy (staid, packet->streamid, sizeof (staid));
+      memcpy (staid, packet->streamid, sizeof (staid) - 1);
+      staid[sizeof (staid) - 1] = '\0';
     }
 
     if (MS3_ISVALIDHEADER (record))

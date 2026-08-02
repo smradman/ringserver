@@ -2065,14 +2065,18 @@ SetParameter (const char *paramstring, int dynamiconly)
     if (dynamiconly)
       return fieldcount;
 
-    if (sscanf (field[1], "%" SCNu32, &config.pktsize) != 1)
+    if (sscanf (field[1], "%" SCNu32, &config.pktsize) != 1 ||
+        config.pktsize > (UINT32_MAX - sizeof (RingPacket) - 8))
     {
       lprintf (0, "Error with %s config parameter: %s", field[0], paramstring);
       return -1;
     }
 
-    /* Add size of RingPacket header to specified value */
+    /* Add size of RingPacket header to specified value and round up to a
+     * multiple of 8 so every packet slot, and in particular the pkttime
+     * field used by the lockless read protocol, stays 8-byte aligned */
     config.pktsize += sizeof (RingPacket);
+    config.pktsize = (config.pktsize + 7) & ~(uint32_t)7;
   }
   else if (!strcasecmp ("AutoRecovery", field[0]) && fieldcount == 2)
   {

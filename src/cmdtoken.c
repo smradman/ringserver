@@ -47,20 +47,24 @@ int
 cmdtoken_parse (CmdToken *cmd, const char *line)
 {
   char *p;
+  size_t len;
 
   if (!cmd || !line)
     return -1;
 
-  memset (cmd, 0, sizeof (CmdToken));
+  cmd->argc     = 0;
+  cmd->overflow = 0;
 
-  if (strlen (line) >= CMDTOKEN_MAX_LINE)
+  len = strlen (line);
+
+  if (len >= CMDTOKEN_MAX_LINE)
     return -1;
 
   /* Keep an unmodified copy for cmdtoken_rest_after() */
-  memcpy (cmd->orig, line, strlen (line) + 1);
+  memcpy (cmd->orig, line, len + 1);
 
   /* Working copy to mutate */
-  memcpy (cmd->buf, line, strlen (line) + 1);
+  memcpy (cmd->buf, line, len + 1);
 
   p = cmd->buf;
 

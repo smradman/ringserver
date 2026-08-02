@@ -18,7 +18,7 @@ ifneq ($(filter clean,$(MAKECMDGOALS)),)
   endif
 endif
 
-.PHONY: all clean install $(BUILDDIRS)
+.PHONY: all clean install test $(BUILDDIRS)
 
 all:   TARGET = all
 clean: TARGET = clean
@@ -29,6 +29,10 @@ $(BUILDDIRS):
 
 # The main program links against the vendored libs: build it last.
 src: $(SUBDIRS)
+
+# Run test suite against the built binary
+test: all
+	python3 -m unittest discover -s test -v
 
 install:
 	@echo

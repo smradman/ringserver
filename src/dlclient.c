@@ -203,8 +203,9 @@ DLHandleCmd (ClientInfo *cinfo)
  *
  * Send selected ring packets to DataLink client.
  *
- * Returns packet size sent on success, zero when no packet sent,
- * negative value on error.  On error the client should disconnected.
+ * Returns packet size sent on success (or 1 for a zero-length packet),
+ * zero when no packet was read from the ring, negative value on error.
+ * On error the client should disconnected.
  ***********************************************************************/
 int
 DLStreamPackets (ClientInfo *cinfo)
@@ -246,7 +247,9 @@ DLStreamPackets (ClientInfo *cinfo)
       return -1;
   }
 
-  return (int)cinfo->packet.datasize;
+  /* A zero-length packet was still consumed from the ring; report nonzero
+   * so the caller does not apply the no-data throttle. */
+  return (cinfo->packet.datasize > 0) ? (int)cinfo->packet.datasize : 1;
 } /* End of DLStreamPackets() */
 
 /***********************************************************************
@@ -424,6 +427,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
         lprintf (0, "[%s] Unsupported AUTH type: %s", cinfo->hostname, cmd->argv[1]);
         if (SendPacket (cinfo, "ERROR", "Unsupported AUTH type", 0, 1, 1))
           return -1;
+
+        OKGO = 0;
       }
     }
 
@@ -598,9 +603,15 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
           }
           else if (pktid == RINGID_NONE)
           {
-            lprintf (2, "[%s] No packet found for RingAfter time: %s [%" PRId64 "]",
+            /* No packet with data after the requested time: position at the
+             * live edge so streaming resumes with the next new packet */
+            cinfo->reader->pktoffset = -1;
+            cinfo->reader->pktid     = RINGID_NEXT;
+
+            lprintf (2, "[%s] No packet found for RingAfter time: %s [%" PRId64 "], positioning to LATEST",
                      cinfo->hostname, timestr, cinfo->starttime);
-            if (SendPacket (cinfo, "ERROR", "Packet not found", 0, 1, 1))
+
+            if (SendPacket (cinfo, "OK", "Positioned to LATEST packet", 0, 1, 1))
               return -1;
           }
           else
@@ -929,6 +940,15 @@ HandleWrite (ClientInfo *cinfo, CmdToken *cmd)
       return -1;
     }
 
+    if (pktid > RINGID_MAXIMUM)
+    {
+      lprintf (1, "[%s] WRITE packet ID out of range: %" PRIu64, cinfo->hostname, pktid);
+
+      SendPacket (cinfo, "ERROR", "WRITE packet ID out of range", 0, 1, 1);
+
+      return -1;
+    }
+
     cinfo->packet.pktid = pktid;
   }
   else
@@ -1001,14 +1021,16 @@ HandleWrite (ClientInfo *cinfo, CmdToken *cmd)
     }
   }
 
-  /* Make sure this packet data would fit into the ring */
-  if (cinfo->packet.datasize > param.pktsize)
+  /* Make sure this packet data would fit into the ring; limit matches what
+   * is advertised in the ID reply (PACKETSIZE) and what RingWrite() enforces. */
+  if ((size_t)cinfo->packet.datasize + sizeof (RingPacket) > param.pktsize)
   {
-    lprintf (1, "[%s] Submitted packet size (%d) is greater than ring packet size (%d)",
-             cinfo->hostname, cinfo->packet.datasize, param.pktsize);
+    lprintf (1, "[%s] Submitted packet size (%d) is greater than maximum packet size (%lu)",
+             cinfo->hostname, cinfo->packet.datasize,
+             (unsigned long int)(param.pktsize - sizeof (RingPacket)));
 
-    snprintf (replystr, sizeof (replystr), "Packet size (%d) is too large for ring, maximum is %d bytes",
-              cinfo->packet.datasize, param.pktsize);
+    snprintf (replystr, sizeof (replystr), "Packet size (%d) is too large for ring, maximum is %lu bytes",
+              cinfo->packet.datasize, (unsigned long int)(param.pktsize - sizeof (RingPacket)));
     SendPacket (cinfo, "ERROR", replystr, 0, 1, 1);
 
     return -1;

@@ -421,14 +421,22 @@ main (int argc, char *argv[])
   {
     hpcurtime = NSnow ();
 
-    /* If shutdown is requested signal all client threads */
+    /* One-time transition into the shutdown sequence */
     if (param.shutdownsig == 1)
     {
       param.shutdownsig = 2;
 
       /* Set shutdown loop throttle of .1 seconds */
       timereq.tv_nsec = 100000000;
+    }
 
+    /* While shutdown is in progress, repeat the (idempotent) request passes
+       every iteration so a thread added to the lists after the first pass
+       (e.g. a client accepted just as shutdown began) is still told to
+       close; passes skip threads already CLOSING/CLOSED and a closed
+       listen socket (-1) makes repeats harmless. */
+    if (param.shutdownsig >= 1)
+    {
       /* Request shutdown of server threads */
       pthread_mutex_lock (&param.sthreads_lock);
       loopstp = param.sthreads;
@@ -448,7 +456,8 @@ main (int argc, char *argv[])
           }
         }
         /* Otherwise set thread flag to CLOSE */
-        else if (loopstp->td && (loopstp->td->td_state != TDS_CLOSING) && loopstp->td->td_state != TDS_CLOSED)
+        else if (loopstp->td && loopstp->td->td_state != TDS_CLOSE &&
+                 loopstp->td->td_state != TDS_CLOSING && loopstp->td->td_state != TDS_CLOSED)
         {
           lprintf (3, "Requesting shutdown of server thread %lu",
                    (unsigned long int)loopstp->td->td_id);
@@ -465,7 +474,8 @@ main (int argc, char *argv[])
       loopctp = param.cthreads;
       while (loopctp)
       {
-        if (loopctp->td->td_state != TDS_CLOSING && loopctp->td->td_state != TDS_CLOSED)
+        if (loopctp->td->td_state != TDS_CLOSE &&
+            loopctp->td->td_state != TDS_CLOSING && loopctp->td->td_state != TDS_CLOSED)
         {
           lprintf (3, "Requesting shutdown of client thread %lu",
                    (unsigned long int)loopctp->td->td_id);
@@ -488,7 +498,7 @@ main (int argc, char *argv[])
         loopctp = loopctp->next;
       }
       pthread_mutex_unlock (&param.cthreads_lock);
-    } /* Done initializing shutdown sequence */
+    } /* Done requesting shutdown of server and client threads */
 
     if (param.shutdownsig > 1)
     {
@@ -739,7 +749,7 @@ main (int argc, char *argv[])
         rxbyterate += ((ClientInfo *)ctp->td->td_prvtptr)->rxbyterate;
 
         /* Write transfer logs and reset byte counts */
-        if (usage_interval_ended)
+        if (usage_interval_ended && !param.shutdownsig)
           WriteTransferLog ((ClientInfo *)ctp->td->td_prvtptr, 1);
 
         /* Close idle clients if limit is set and exceeded */
@@ -888,6 +898,8 @@ FreeClientInfo (ClientInfo *cinfo)
   free (cinfo->addr);
   free (cinfo->allowedstr);
   free (cinfo->forbiddenstr);
+  if (cinfo->mswrite)
+    free (cinfo->mswrite->path);
   free (cinfo->mswrite);
   pthread_mutex_destroy (&cinfo->streams_lock);
   free (cinfo);
@@ -981,6 +993,8 @@ ListenThread (void *arg)
     lprintf (1, "Listening for connections on port %s (unknown protocols?)",
              lpp->portstr);
 
+  int backoff_logged = 0;
+
   /* Enter connection dispatch loop, spawning a new thread for each incoming connection */
   while (!param.shutdownsig)
   {
@@ -996,12 +1010,32 @@ ListenThread (void *arg)
       if (errno == ECONNABORTED || errno == EINTR)
         continue;
 
+      /* Transient resource exhaustion: back off briefly and keep listening
+         instead of exiting the thread, which would otherwise be respawned
+         in a tight loop while the resource stays scarce.  Log only at the
+         start of a streak to avoid flooding the log. */
+      if (errno == EMFILE || errno == ENFILE || errno == ENOBUFS || errno == ENOMEM)
+      {
+        struct timespec backoff = {.tv_sec = 0, .tv_nsec = 100000000};
+
+        if (!backoff_logged)
+        {
+          lprintf (0, "Could not accept incoming connection (%s), retrying", strerror (errno));
+          backoff_logged = 1;
+        }
+
+        nanosleep (&backoff, NULL);
+        continue;
+      }
+
       /* If not shutting down this is a connection error */
       if (!param.shutdownsig)
         lprintf (0, "Could not accept incoming connection: %s", strerror (errno));
 
       break;
     }
+
+    backoff_logged = 0;
 
     /* Turn off TCP delay algorithm (Nagle) */
     if (setsockopt (clientsocket, tcpprotonumber, TCP_NODELAY, (void *)&one, sizeof (one)))
@@ -1066,7 +1100,7 @@ ListenThread (void *arg)
       lprintf (0, "Error allocating memory for socket structure");
       close (clientsocket);
       FreeClientInfo (cinfo);
-      break;
+      continue;
     }
 
     memcpy (cinfo->addr, &addr_storage, addrlen);
@@ -1078,7 +1112,7 @@ ListenThread (void *arg)
       lprintf (0, "Error initializing thread_data: %s", strerror (errno));
       close (clientsocket);
       FreeClientInfo (cinfo);
-      break;
+      continue;
     }
 
     /* Allocate the tracking entry before starting the thread */
@@ -1287,7 +1321,15 @@ ConfigClient (struct sockaddr *paddr, int clientsocket,
       return NULL;
     }
 
-    cinfo->mswrite->path          = config.mseedarchive;
+    /* Copy the path since the config value can be freed and replaced on a
+     * config reload while clients are connected */
+    if (!(cinfo->mswrite->path = strdup (config.mseedarchive)))
+    {
+      lprintf (0, "Error allocating memory for miniSEED archive path");
+      FreeClientInfo (cinfo);
+      return NULL;
+    }
+
     cinfo->mswrite->idletimeout   = config.mseedidleto;
     cinfo->mswrite->maxopenfiles  = 50;
     cinfo->mswrite->openfilecount = 0;

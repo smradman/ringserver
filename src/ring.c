@@ -44,6 +44,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <stdatomic.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -68,13 +70,117 @@
 /* Macro to calculate pointer to RingPacket in buffer */
 #define PACKETPTR(O) ((RingPacket *)(param.datastart + (O)))
 
+/* Maximum bytes transferred per read()/write() call in ReadFull/WriteFull */
+#define CHUNKIO_MAXCHUNK ((size_t)1 << 30) /* 1 GiB */
+
 static int StreamIDCmp (const void *a, const void *b);
 static int StreamIDSelected (RingReader *reader, const char *streamid);
-static void SnapshotStreams (RBTree *tree, RBNode *node, RingStream *array, uint32_t *count);
+static void SnapshotStreams (RBTree *tree, RBNode *node, RingStream *array,
+                             uint32_t *count, uint32_t capacity);
 static inline int64_t FindOffsetForID (uint64_t pktid, nstime_t *pkttime);
 static RingStream *AddStreamIdx (RBTree *streamidx, RingStream *stream, Key **ppkey);
 static RingStream *GetStreamIdx (RBTree *streamidx, char *streamid);
 static int DelStreamIdx (RBTree *streamidx, char *streamid);
+static int64_t ReadFull (int fd, uint8_t *buffer, uint64_t size);
+static int64_t WriteFull (int fd, const uint8_t *buffer, uint64_t size);
+
+/***************************************************************************
+ * LoadPktTime / StorePktTime:
+ *
+ * Access a RingPacket's pkttime field through a volatile pointer, forcing
+ * an actual load/store rather than a value the compiler may have cached
+ * or reordered.  RingPacket is packed, so atomic operations cannot be
+ * used directly on the member; these are paired with explicit
+ * memory_order_acquire/release fences for cross-thread ordering.
+ *
+ * The slot's pkttime acts as a single-writer sequence word: RingWrite()
+ * stores NSTUNSET before mutating a slot's packet contents and stores the
+ * real value as the final, single store after they are complete, so
+ * lockless readers sampling NSTUNSET or a changed value know the slot
+ * copy is not consistent.  Values are strictly increasing in ring order.
+ * The nextinstream linkage field is maintained separately under the
+ * writer locks and is not covered by this guard.
+ *
+ * The address is computed via offsetof to avoid taking the address of a
+ * packed member; slots are 8-byte aligned (pktsize is rounded up), which
+ * the single-copy atomicity of these accesses relies on.
+ ***************************************************************************/
+static inline nstime_t
+LoadPktTime (const RingPacket *pkt)
+{
+  return *(const volatile nstime_t *)((const uint8_t *)pkt + offsetof (RingPacket, pkttime));
+} /* End of LoadPktTime() */
+
+static inline void
+StorePktTime (RingPacket *pkt, nstime_t pkttime)
+{
+  *(volatile nstime_t *)((uint8_t *)pkt + offsetof (RingPacket, pkttime)) = pkttime;
+} /* End of StorePktTime() */
+
+/***************************************************************************
+ * ReadFull / WriteFull:
+ *
+ * Transfer exactly size bytes between a file descriptor and a memory
+ * buffer, looping in chunks of at most CHUNKIO_MAXCHUNK bytes since a
+ * single read()/write() call is not guaranteed to transfer more than
+ * that in one call (notably for sizes at or beyond 2 GiB).
+ *
+ * Return the number of bytes transferred on success (always size) or
+ * -1 on error or short (0 or negative) transfer.
+ ***************************************************************************/
+static int64_t
+ReadFull (int fd, uint8_t *buffer, uint64_t size)
+{
+  uint64_t total = 0;
+  ssize_t nread;
+  size_t chunk;
+
+  while (total < size)
+  {
+    chunk = (size - total > CHUNKIO_MAXCHUNK) ? CHUNKIO_MAXCHUNK : (size_t)(size - total);
+    nread = read (fd, buffer + total, chunk);
+
+    if (nread < 0 && errno == EINTR)
+      continue;
+
+    if (nread == 0)
+      errno = EIO; /* Short transfer, ensure a sensible errno for callers */
+
+    if (nread <= 0)
+      return -1;
+
+    total += (uint64_t)nread;
+  }
+
+  return (int64_t)total;
+} /* End of ReadFull() */
+
+static int64_t
+WriteFull (int fd, const uint8_t *buffer, uint64_t size)
+{
+  uint64_t total = 0;
+  ssize_t nwritten;
+  size_t chunk;
+
+  while (total < size)
+  {
+    chunk = (size - total > CHUNKIO_MAXCHUNK) ? CHUNKIO_MAXCHUNK : (size_t)(size - total);
+    nwritten = write (fd, buffer + total, chunk);
+
+    if (nwritten < 0 && errno == EINTR)
+      continue;
+
+    if (nwritten == 0)
+      errno = EIO; /* Short transfer, ensure a sensible errno for callers */
+
+    if (nwritten <= 0)
+      return -1;
+
+    total += (uint64_t)nwritten;
+  }
+
+  return (int64_t)total;
+} /* End of WriteFull() */
 
 /***************************************************************************
  * RingInitialize:
@@ -293,7 +399,7 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
     {
       lprintf (1, "Reading ring packet buffer file into memory");
 
-      if (read (*ringfd, param.ringbuffer, config.ringsize) != config.ringsize)
+      if (ReadFull (*ringfd, param.ringbuffer, config.ringsize) != (int64_t)config.ringsize)
       {
         lprintf (0, "%s(): error reading ring packet buffer into memory: %s",
                  __func__, strerror (errno));
@@ -636,7 +742,7 @@ RingShutdown (int ringfd, char *streamfilename)
       rv = -1;
     }
 
-    if (write (ringfd, param.ringbuffer, param.ringsize) != param.ringsize)
+    if (WriteFull (ringfd, param.ringbuffer, param.ringsize) != (int64_t)param.ringsize)
     {
       lprintf (0, "%s(): error writing ring buffer file: %s", __func__, strerror (errno));
       rv = -1;
@@ -694,10 +800,28 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
   int64_t offset;
   int64_t earliestoffset;
   int64_t latestoffset;
-  nstime_t pkttime = NSnow ();
+  nstime_t pkttime;
+
+  /* Last stamped packet creation time, protected by ringlock */
+  static nstime_t last_pkttime = 0;
+
+  /* Details captured for log messages emitted after the locks are released */
+  int log_removed_packet = 0;
+  char removedpkt_streamid[MAXSTREAMID];
+  uint64_t removedpkt_pktid  = 0;
+  int64_t removedpkt_offset  = 0;
+  int log_removed_stream     = 0;
+  char removedstream_streamid[MAXSTREAMID];
+  int log_added_stream = 0;
+  char addedstream_streamid[MAXSTREAMID];
+  uint64_t addedstream_key = 0;
 
   if (!packet || !packetdata)
     return -1;
+
+  /* Ensure the caller-supplied stream ID is NUL-terminated before it is
+   * used for hashing and lookup */
+  packet->streamid[MAXSTREAMID - 1] = '\0';
 
   /* Check packet size */
   if ((sizeof (RingPacket) + datasize) > param.pktsize)
@@ -707,9 +831,19 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
     return -1;
   }
 
+  packet->datasize = datasize;
+
   /* Lock ring and streams index */
   pthread_mutex_lock (&param.ringlock);
   pthread_mutex_lock (&param.streamlock);
+
+  /* Stamp the packet creation time under the lock and force it to be
+   * strictly increasing: it doubles as the sequence word for lockless
+   * readers, which requires unique, monotonic values in ring order. */
+  pkttime = NSnow ();
+  if (pkttime <= last_pkttime)
+    pkttime = last_pkttime + 1;
+  last_pkttime = pkttime;
 
   earliestoffset = param.earliestoffset;
   latestoffset   = param.latestoffset;
@@ -759,14 +893,22 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
     /* Update global params with new earliest entry */
     param.earliestoffset = nextInRing->offset;
 
-    lprintf (3, "Removing packet for stream %s (id: %" PRIu64 ", offset: %" PRId64 ")",
-             earliest->streamid, earliest->pktid, earliest->offset);
+    /* Capture details for the "removing packet" log message, emitted after
+     * the locks are released below.  The in-ring stream ID is not
+     * guaranteed to be NUL-terminated. */
+    log_removed_packet = 1;
+    memcpy (removedpkt_streamid, earliest->streamid, sizeof (removedpkt_streamid));
+    removedpkt_streamid[sizeof (removedpkt_streamid) - 1] = '\0';
+    removedpkt_pktid  = earliest->pktid;
+    removedpkt_offset = earliest->offset;
 
     if (!(streamOfEarliest = GetStreamIdx (param.streamidx, earliest->streamid)))
     {
-      lprintf (0, "%s(): Error getting earliest packet stream", __func__);
       pthread_mutex_unlock (&param.ringlock);
       pthread_mutex_unlock (&param.streamlock);
+      lprintf (3, "Removing packet for stream %s (id: %" PRIu64 ", offset: %" PRId64 ")",
+               removedpkt_streamid, removedpkt_pktid, removedpkt_offset);
+      lprintf (0, "%s(): Error getting earliest packet stream", __func__);
       return -2;
     }
 
@@ -774,9 +916,17 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
     if (earliest->offset == streamOfEarliest->earliestoffset &&
         earliest->offset == streamOfEarliest->latestoffset)
     {
-      lprintf (2, "Removing stream index entry for %s", earliest->streamid);
-      DelStreamIdx (param.streamidx, earliest->streamid);
-      param.streamcount--;
+      if (DelStreamIdx (param.streamidx, earliest->streamid) == 0)
+      {
+        param.streamcount--;
+        log_removed_stream = 1;
+        memcpy (removedstream_streamid, earliest->streamid, sizeof (removedstream_streamid));
+        removedstream_streamid[sizeof (removedstream_streamid) - 1] = '\0';
+      }
+      else
+      {
+        lprintf (0, "%s(): Error removing stream index entry for %s", __func__, earliest->streamid);
+      }
     }
     /* Else update stream entry for the next packet in the stream */
     else if (nextInStream)
@@ -812,25 +962,46 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
     /* Add new stream to index */
     if (!(stream = AddStreamIdx (param.streamidx, &newstream, &skey)))
     {
-      lprintf (0, "%s(): Error adding new stream index", __func__);
       pthread_mutex_unlock (&param.ringlock);
       pthread_mutex_unlock (&param.streamlock);
+      if (log_removed_packet)
+        lprintf (3, "Removing packet for stream %s (id: %" PRIu64 ", offset: %" PRId64 ")",
+                 removedpkt_streamid, removedpkt_pktid, removedpkt_offset);
+      if (log_removed_stream)
+        lprintf (2, "Removing stream index entry for %s", removedstream_streamid);
+      lprintf (0, "%s(): Error adding new stream index", __func__);
       return -2;
     }
     else
     {
       param.streamcount++;
+      log_added_stream = 1;
+      memcpy (addedstream_streamid, packet->streamid, sizeof (addedstream_streamid));
+      addedstream_key = *skey;
     }
-
-    lprintf (2, "Added stream entry for %s (key: %" PRIx64 ")", packet->streamid, *skey);
   }
 
-  /* Copy packet header into ring */
-  uint8_t *writeptr = (uint8_t *)PACKETPTR (offset);
-  memcpy (writeptr, packet, sizeof (RingPacket));
+  /* Mark the slot as mid-write by invalidating its pkttime so lockless
+   * readers sampling it know the contents are not consistent */
+  RingPacket *slotpkt = PACKETPTR (offset);
+  StorePktTime (slotpkt, NSTUNSET);
+  atomic_thread_fence (memory_order_release);
 
-  /* Copy packet data into ring directly after header */
+  /* Copy packet data into the ring, directly after the header slot */
+  uint8_t *writeptr = (uint8_t *)slotpkt;
   memcpy ((writeptr + sizeof (RingPacket)), packetdata, datasize);
+
+  /* Copy packet header into the ring with pkttime withheld (still
+   * NSTUNSET), keeping the slot marked mid-write: a bulk copy provides no
+   * ordering of the sequence word relative to the other header bytes */
+  packet->pkttime = NSTUNSET;
+  memcpy (writeptr, packet, sizeof (RingPacket));
+  packet->pkttime = pkttime;
+
+  /* Publish: ensure all slot contents are visible before the single,
+   * final store of the real pkttime re-validates the slot for readers */
+  atomic_thread_fence (memory_order_release);
+  StorePktTime (slotpkt, pkttime);
 
   /* Update entry for previous packet in stream */
   if (stream->latestoffset >= 0)
@@ -860,6 +1031,18 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
   /* Unlock ring and stream index */
   pthread_mutex_unlock (&param.ringlock);
   pthread_mutex_unlock (&param.streamlock);
+
+  /* Emit log messages for events captured above, now that the locks are
+   * released and writers/readers are no longer serialized behind them */
+  if (log_removed_packet)
+    lprintf (3, "Removing packet for stream %s (id: %" PRIu64 ", offset: %" PRId64 ")",
+             removedpkt_streamid, removedpkt_pktid, removedpkt_offset);
+
+  if (log_removed_stream)
+    lprintf (2, "Removing stream index entry for %s", removedstream_streamid);
+
+  if (log_added_stream)
+    lprintf (2, "Added stream entry for %s (key: %" PRIx64 ")", addedstream_streamid, addedstream_key);
 
   lprintf (3, "Added packet for stream %s, pktid: %" PRIu64 ", offset: %" PRId64,
            packet->streamid, packet->pktid, packet->offset);
@@ -903,7 +1086,16 @@ RingReadPacket (int64_t offset, RingPacket *packet, char *packetdata)
 
   pkt = PACKETPTR (offset);
 
-  pkttime = pkt->pkttime;
+  /* Sample pkttime, then copy the packet, then re-check pkttime below to
+   * detect a concurrent RingWrite() overwriting this slot.  NSTUNSET
+   * means the slot is mid-write. */
+  pkttime = LoadPktTime (pkt);
+  atomic_thread_fence (memory_order_acquire);
+
+  if (pkttime == NSTUNSET)
+  {
+    return RINGID_NONE;
+  }
 
   /* Copy packet header */
   memcpy (packet, pkt, sizeof (RingPacket));
@@ -926,7 +1118,8 @@ RingReadPacket (int64_t offset, RingPacket *packet, char *packetdata)
     memcpy (packetdata, (uint8_t *)pkt + sizeof (RingPacket), packet->datasize);
 
   /* Sanity check that the data was not modified during the copy */
-  if (pkttime != pkt->pkttime)
+  atomic_thread_fence (memory_order_acquire);
+  if (pkttime != LoadPktTime (pkt))
   {
     return RINGID_NONE;
   }
@@ -1012,16 +1205,20 @@ RingRead (RingReader *reader, uint64_t reqid,
 uint64_t
 RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
 {
-  RingPacket latestpkt = {.offset = -1, .pktid = RINGID_NONE, .pkttime = NSTUNSET};
+  RingPacket latestpkt;
   RingPacket *pkt;
   nstime_t pkttime;
   int64_t offset = -1;
   uint8_t skip;
   uint32_t skipped;
+  uint64_t latestrv;
 
   int64_t earliestoffset;
   int64_t latestoffset;
   int64_t eoboffset;
+  const int64_t maxoffset    = param.maxoffset;
+  const uint32_t pktsize     = config.pktsize;
+  pcre2_match_context *mctx  = GetMatchContext ();
 
   if (!reader || !packet)
     return RINGID_ERROR;
@@ -1041,7 +1238,26 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
     return RINGID_NONE;
   }
 
-  RingReadPacket (latestoffset, &latestpkt, NULL);
+  /* Determine the end-of-buffer offset as the one following the latest offset */
+  eoboffset = NEXTOFFSET (latestoffset, maxoffset, pktsize);
+
+  /* For a reader already streaming (caught up or not), determine the next
+   * offset up front so a caught-up reader can return immediately without
+   * paying for a read of the latest packet below */
+  if (reader->pktoffset >= 0)
+  {
+    offset = NEXTOFFSET (reader->pktoffset, maxoffset, pktsize);
+
+    if (offset == eoboffset)
+      return RINGID_NONE;
+  }
+
+  /* Read the latest packet, needed both for initial positioning below and to
+   * bound the reposition-detection scan that follows */
+  latestrv = RingReadPacket (latestoffset, &latestpkt, NULL);
+
+  if (latestrv == RINGID_NONE || latestrv == RINGID_ERROR)
+    return RINGID_NONE;
 
   /* Determine offset for initial read or relative positions */
   if (reader->pktoffset < 0)
@@ -1070,14 +1286,6 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
       return RINGID_ERROR;
     }
   }
-  /* Otherwise determine the next packet offset */
-  else
-  {
-    offset = NEXTOFFSET (reader->pktoffset, param.maxoffset, config.pktsize);
-  }
-
-  /* Determine the end-of-buffer offset as the one following the latest offset */
-  eoboffset = NEXTOFFSET (latestoffset, param.maxoffset, config.pktsize);
 
   /* Loop until we have a matching packet or reached the end of the buffer */
   skip    = 1;
@@ -1086,15 +1294,20 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
   {
     skip = 0;
 
-    pkt     = PACKETPTR (offset);
-    pkttime = pkt->pkttime;
+    pkt = PACKETPTR (offset);
+
+    /* Sample pkttime, then re-check below (after the copy) to detect a
+     * concurrent RingWrite() overwriting this slot */
+    pkttime = LoadPktTime (pkt);
+    atomic_thread_fence (memory_order_acquire);
 
     /* Determine if this is a valid packet by checking that the packet time has
      * not advanced past the lastest time */
-    if (pkttime > latestpkt.pkttime)
+    if (pkttime == NSTUNSET || pkttime > latestpkt.pkttime)
     {
-      /* If the packet has been replaced, assume the reader has been lapped (fallen off
-       * the trailing edge of the buffer) and reposition to the earliest packet */
+      /* If the packet is mid-write (NSTUNSET) or has been replaced, assume the
+       * reader has been lapped (fallen off the trailing edge of the buffer)
+       * and reposition to the earliest packet */
 
       offset = param.earliestoffset;
       skipped++;
@@ -1112,10 +1325,10 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
 
     skipped = 0;
 
-    /* Update reader position */
+    /* Update reader position, using the sampled pkttime validated below */
     reader->pktoffset = offset;
     reader->pktid     = pkt->pktid;
-    reader->pkttime   = pkt->pkttime;
+    reader->pkttime   = pkttime;
 
     /* Bound streamid length to slot size */
     PCRE2_SIZE sidlen = strnlen (pkt->streamid, MAXSTREAMID);
@@ -1123,31 +1336,31 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
     /* Test allowed expression if available, skip if NOT matched */
     if (reader->allowed)
       if (pcre2_match (reader->allowed, (PCRE2_SPTR8)pkt->streamid, sidlen, 0, 0,
-                       reader->allowed_data, GetMatchContext ()) < 0)
+                       reader->allowed_data, mctx) < 0)
         skip = 1;
 
     /* Test forbidden expression if available, skip if matched */
     if (reader->forbidden && skip == 0)
       if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)pkt->streamid, sidlen, 0, 0,
-                       reader->forbidden_data, GetMatchContext ()) >= 0)
+                       reader->forbidden_data, mctx) >= 0)
         skip = 1;
 
     /* Test match expression if available, skip if NOT matched */
     if (reader->match && skip == 0)
       if (pcre2_match (reader->match, (PCRE2_SPTR8)pkt->streamid, sidlen, 0, 0,
-                       reader->match_data, GetMatchContext ()) < 0)
+                       reader->match_data, mctx) < 0)
         skip = 1;
 
     /* Test reject expression if available, skip if matched */
     if (reader->reject && skip == 0)
       if (pcre2_match (reader->reject, (PCRE2_SPTR8)pkt->streamid, sidlen, 0, 0,
-                       reader->reject_data, GetMatchContext ()) >= 0)
+                       reader->reject_data, mctx) >= 0)
         skip = 1;
 
     /* If skipping this packet determine the next packet in the ring */
     if (skip)
     {
-      offset = NEXTOFFSET (offset, param.maxoffset, config.pktsize);
+      offset = NEXTOFFSET (offset, maxoffset, pktsize);
     }
   }
 
@@ -1179,7 +1392,8 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
     memcpy (packetdata, (uint8_t *)pkt + sizeof (RingPacket), packet->datasize);
 
   /* Sanity check that the data was not overwritten during processing */
-  if (pkttime != pkt->pkttime)
+  atomic_thread_fence (memory_order_acquire);
+  if (pkttime != LoadPktTime (pkt))
   {
     return RINGID_NONE;
   }
@@ -1301,6 +1515,10 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
   int64_t offset;
   uint64_t skipped = 0;
   uint8_t skip;
+  uint8_t found = 0;
+  const int64_t maxoffset    = param.maxoffset;
+  const uint32_t pktsize     = config.pktsize;
+  pcre2_match_context *mctx  = GetMatchContext ();
 
   if (!reader)
     return RINGID_ERROR;
@@ -1325,36 +1543,42 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
     if (pkt1->dataend < reftime)
       skip = 1;
 
-    /* Bound streamid length to slot size, in-ring streamid may not be NUL-terminated */
-    PCRE2_SIZE sidlen = strnlen (pkt1->streamid, MAXSTREAMID);
+    /* Only bother with the regex tests, including the streamid length
+     * bound, if the packet has not already been skipped above */
+    if (!skip)
+    {
+      /* Bound streamid length to slot size, in-ring streamid may not be NUL-terminated */
+      PCRE2_SIZE sidlen = strnlen (pkt1->streamid, MAXSTREAMID);
 
-    /* Test allowed expression if available, skip if NOT matched */
-    if (reader->allowed && !skip)
-      if (pcre2_match (reader->allowed, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
-                       reader->allowed_data, GetMatchContext ()) < 0)
-        skip = 1;
+      /* Test allowed expression if available, skip if NOT matched */
+      if (reader->allowed && !skip)
+        if (pcre2_match (reader->allowed, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
+                         reader->allowed_data, mctx) < 0)
+          skip = 1;
 
-    /* Test forbidden expression if available, skip if matched */
-    if (reader->forbidden && !skip)
-      if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
-                       reader->forbidden_data, GetMatchContext ()) >= 0)
-        skip = 1;
+      /* Test forbidden expression if available, skip if matched */
+      if (reader->forbidden && !skip)
+        if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
+                         reader->forbidden_data, mctx) >= 0)
+          skip = 1;
 
-    /* Test match expression if available, skip if NOT matched */
-    if (reader->match && !skip)
-      if (pcre2_match (reader->match, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
-                       reader->match_data, GetMatchContext ()) < 0)
-        skip = 1;
+      /* Test match expression if available, skip if NOT matched */
+      if (reader->match && !skip)
+        if (pcre2_match (reader->match, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
+                         reader->match_data, mctx) < 0)
+          skip = 1;
 
-    /* Test reject expression if available, skip if matched */
-    if (reader->reject && !skip)
-      if (pcre2_match (reader->reject, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
-                       reader->reject_data, GetMatchContext ()) >= 0)
-        skip = 1;
+      /* Test reject expression if available, skip if matched */
+      if (reader->reject && !skip)
+        if (pcre2_match (reader->reject, (PCRE2_SPTR8)pkt1->streamid, sidlen, 0, 0,
+                         reader->reject_data, mctx) >= 0)
+          skip = 1;
+    }
 
     /* Done if this matching packet has a data end time after that specified */
     if (!skip && pkt1->dataend > reftime)
     {
+      found = 1;
       break;
     }
 
@@ -1367,12 +1591,12 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
       break;
     }
 
-    offset = NEXTOFFSET (offset, param.maxoffset, config.pktsize);
+    offset = NEXTOFFSET (offset, maxoffset, pktsize);
     skipped++;
   }
 
-  /* Safety valve, if no packets were ever seen */
-  if (!pkt1)
+  /* No matching packet was found in the ring */
+  if (!found)
   {
     return RINGID_NONE;
   }
@@ -1383,12 +1607,16 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
     pkt1 = pkt0;
   }
 
-  offset  = pkt1->offset;
-  pktid   = pkt1->pktid;
-  pkttime = pkt1->pkttime;
+  /* Sample pkttime, then read the remaining fields, then re-check pkttime
+   * to detect the slot being overwritten while it was read */
+  pkttime = LoadPktTime (pkt1);
+  atomic_thread_fence (memory_order_acquire);
 
-  /* Sanity check that the data was not overwritten during the copy */
-  if (pktid != pkt1->pktid)
+  offset = pkt1->offset;
+  pktid  = pkt1->pktid;
+
+  atomic_thread_fence (memory_order_acquire);
+  if (pkttime == NSTUNSET || pkttime != LoadPktTime (pkt1))
   {
     return RINGID_NONE;
   }
@@ -1441,6 +1669,9 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
   int64_t soffset;
   uint64_t count = 0;
   uint8_t skip;
+  const int64_t maxoffset    = param.maxoffset;
+  const uint32_t pktsize     = config.pktsize;
+  pcre2_match_context *mctx  = GetMatchContext ();
 
   if (!reader)
     return RINGID_ERROR;
@@ -1467,25 +1698,25 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
     /* Test allowed expression if available, skip if NOT matched */
     if (reader->allowed)
       if (pcre2_match (reader->allowed, (PCRE2_SPTR8)spkt->streamid, sidlen, 0, 0,
-                       reader->allowed_data, GetMatchContext ()) < 0)
+                       reader->allowed_data, mctx) < 0)
         skip = 1;
 
     /* Test forbidden expression if available, skip if matched */
     if (reader->forbidden && !skip)
       if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)spkt->streamid, sidlen, 0, 0,
-                       reader->forbidden_data, GetMatchContext ()) >= 0)
+                       reader->forbidden_data, mctx) >= 0)
         skip = 1;
 
     /* Test match expression if available, skip if NOT matched */
     if (reader->match && !skip)
       if (pcre2_match (reader->match, (PCRE2_SPTR8)spkt->streamid, sidlen, 0, 0,
-                       reader->match_data, GetMatchContext ()) < 0)
+                       reader->match_data, mctx) < 0)
         skip = 1;
 
     /* Test reject expression if available, skip if matched */
     if (reader->reject && !skip)
       if (pcre2_match (reader->reject, (PCRE2_SPTR8)spkt->streamid, sidlen, 0, 0,
-                       reader->reject_data, GetMatchContext ()) >= 0)
+                       reader->reject_data, mctx) >= 0)
         skip = 1;
 
     if (!skip)
@@ -1493,10 +1724,12 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
       /* Set ID and time if this matching packet has a data end time after that specified */
       if (spkt->dataend > reftime)
       {
-        offset  = soffset;
-        pktid   = spkt->pktid;
-        pkttime = spkt->pkttime;
-        pkt     = spkt;
+        /* Sample pkttime before the remaining fields, re-checked below */
+        pkttime = LoadPktTime (spkt);
+        atomic_thread_fence (memory_order_acquire);
+        offset = soffset;
+        pktid  = spkt->pktid;
+        pkt    = spkt;
       }
 
       /* Done if we reach a matching packet with earlier start time */
@@ -1512,7 +1745,7 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
       break;
     }
 
-    soffset = PREVOFFSET (soffset, param.maxoffset, config.pktsize);
+    soffset = PREVOFFSET (soffset, maxoffset, pktsize);
     count++;
   }
 
@@ -1526,18 +1759,21 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
   if (whence == 0 && soffset != param.earliestoffset)
   {
     /* Search for the previous packet */
-    soffset = PREVOFFSET (soffset, param.maxoffset, config.pktsize);
+    soffset = PREVOFFSET (soffset, maxoffset, pktsize);
 
     spkt = PACKETPTR (soffset);
 
-    offset  = spkt->offset;
-    pktid   = spkt->pktid;
-    pkttime = spkt->pkttime;
-    pkt     = spkt;
+    /* Sample pkttime before the remaining fields, re-checked below */
+    pkttime = LoadPktTime (spkt);
+    atomic_thread_fence (memory_order_acquire);
+    offset = spkt->offset;
+    pktid  = spkt->pktid;
+    pkt    = spkt;
   }
 
-  /* Sanity check that the data was not overwritten during the copy */
-  if (pktid != pkt->pktid)
+  /* Sanity check that the data was not overwritten while it was read */
+  atomic_thread_fence (memory_order_acquire);
+  if (pkttime == NSTUNSET || pkttime != LoadPktTime (pkt))
   {
     return RINGID_NONE;
   }
@@ -1711,31 +1947,38 @@ StreamIDCmp (const void *a, const void *b)
 static int
 StreamIDSelected (RingReader *reader, const char *streamid)
 {
+  PCRE2_SIZE sidlen;
+  pcre2_match_context *mctx;
+
   if (!reader)
     return 1;
 
+  /* Bound streamid length to slot size, in-ring streamid may not be NUL-terminated */
+  sidlen = strnlen (streamid, MAXSTREAMID);
+  mctx   = GetMatchContext ();
+
   /* Test allowed expression if available, reject if NOT matched */
   if (reader->allowed)
-    if (pcre2_match (reader->allowed, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                     reader->allowed_data, GetMatchContext ()) < 0)
+    if (pcre2_match (reader->allowed, (PCRE2_SPTR8)streamid, sidlen, 0, 0,
+                     reader->allowed_data, mctx) < 0)
       return 0;
 
   /* Test forbidden expression if available, reject if matched */
   if (reader->forbidden)
-    if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                     reader->forbidden_data, GetMatchContext ()) >= 0)
+    if (pcre2_match (reader->forbidden, (PCRE2_SPTR8)streamid, sidlen, 0, 0,
+                     reader->forbidden_data, mctx) >= 0)
       return 0;
 
   /* Test match expression if available, reject if NOT matched */
   if (reader->match)
-    if (pcre2_match (reader->match, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                     reader->match_data, GetMatchContext ()) < 0)
+    if (pcre2_match (reader->match, (PCRE2_SPTR8)streamid, sidlen, 0, 0,
+                     reader->match_data, mctx) < 0)
       return 0;
 
   /* Test reject expression if available, reject if matched */
   if (reader->reject)
-    if (pcre2_match (reader->reject, (PCRE2_SPTR8)streamid, PCRE2_ZERO_TERMINATED, 0, 0,
-                     reader->reject_data, GetMatchContext ()) >= 0)
+    if (pcre2_match (reader->reject, (PCRE2_SPTR8)streamid, sidlen, 0, 0,
+                     reader->reject_data, mctx) >= 0)
       return 0;
 
   return 1;
@@ -1745,18 +1988,22 @@ StreamIDSelected (RingReader *reader, const char *streamid)
  * SnapshotStreams:
  *
  * Recursively walk the stream index in stream-key order, appending a
- * memcpy() of each RingStream entry to array.  Caller must hold
- * param.streamlock and size array to hold param.streamcount entries.
+ * memcpy() of each RingStream entry to array, stopping once capacity
+ * entries have been written.  Caller must hold param.streamlock.
  ***************************************************************************/
 static void
-SnapshotStreams (RBTree *tree, RBNode *node, RingStream *array, uint32_t *count)
+SnapshotStreams (RBTree *tree, RBNode *node, RingStream *array,
+                 uint32_t *count, uint32_t capacity)
 {
-  if (node == tree->nil)
+  if (node == tree->nil || *count >= capacity)
     return;
 
-  SnapshotStreams (tree, node->left, array, count);
-  memcpy (&array[(*count)++], node->data, sizeof (RingStream));
-  SnapshotStreams (tree, node->right, array, count);
+  SnapshotStreams (tree, node->left, array, count, capacity);
+
+  if (*count < capacity)
+    memcpy (&array[(*count)++], node->data, sizeof (RingStream));
+
+  SnapshotStreams (tree, node->right, array, count, capacity);
 } /* End of SnapshotStreams() */
 
 /***************************************************************************
@@ -1779,6 +2026,7 @@ GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
 {
   RingStream *snapshot    = NULL;
   uint32_t snapshot_count = 0;
+  uint32_t filled         = 0;
   uint32_t kept           = 0;
 
   if (!streams || !count)
@@ -1805,15 +2053,16 @@ GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
       return -1;
     }
 
-    uint32_t filled = 0;
-    SnapshotStreams (param.streamidx, param.streamidx->root->left, snapshot, &filled);
+    SnapshotStreams (param.streamidx, param.streamidx->root->left, snapshot, &filled, snapshot_count);
   }
 
   pthread_mutex_unlock (&param.streamlock);
 
   /* Lock released.  Now run the (potentially expensive) PCRE2 filters,
-   * compacting surviving entries in place. */
-  for (uint32_t i = 0; i < snapshot_count; i++)
+   * compacting surviving entries in place.  Bound by filled, not
+   * snapshot_count: if the tree walk wrote fewer entries than the count
+   * suggested, the remainder of the array was never initialized. */
+  for (uint32_t i = 0; i < filled; i++)
   {
     if (!StreamIDSelected (reader, snapshot[i].streamid))
       continue;
@@ -1905,24 +2154,44 @@ CountStreams (RingReader *reader, uint32_t *count)
 static inline int64_t
 FindOffsetForID (uint64_t pktid, nstime_t *pkttime)
 {
-  RingPacket lookup;
   RingPacket *packet = NULL;
+  RingPacket *earliestpkt;
+  RingPacket *latestpkt;
   int64_t earliestoffset;
   uint64_t earliestid;
+  nstime_t earliesttime;
   int64_t latestoffset;
   uint64_t latestid;
+  nstime_t latesttime;
   int64_t offset;
 
   earliestoffset = param.earliestoffset;
-  earliestid     = RingReadPacket (earliestoffset, &lookup, NULL);
   latestoffset   = param.latestoffset;
-  latestid       = RingReadPacket (latestoffset, &lookup, NULL);
 
   /* Ring is empty */
   if (earliestoffset < 0 || latestoffset < 0)
   {
     return -1;
   }
+
+  /* Read the earliest and latest packet IDs directly from the ring,
+   * validating each with a pkttime sample/re-check instead of paying for
+   * two full RingReadPacket() struct copies */
+  earliestpkt  = PACKETPTR (earliestoffset);
+  earliesttime = LoadPktTime (earliestpkt);
+  atomic_thread_fence (memory_order_acquire);
+  earliestid = earliestpkt->pktid;
+  atomic_thread_fence (memory_order_acquire);
+  if (earliesttime == NSTUNSET || earliesttime != LoadPktTime (earliestpkt))
+    return -1;
+
+  latestpkt  = PACKETPTR (latestoffset);
+  latesttime = LoadPktTime (latestpkt);
+  atomic_thread_fence (memory_order_acquire);
+  latestid = latestpkt->pktid;
+  atomic_thread_fence (memory_order_acquire);
+  if (latesttime == NSTUNSET || latesttime != LoadPktTime (latestpkt))
+    return -1;
 
   /* Earliest ID is less than latest ID.
    * Assume they increment from earliest to latest.
@@ -2037,7 +2306,12 @@ AddStreamIdx (RBTree *streamidx, RingStream *stream, Key **ppkey)
   *newkey = FNVhash64 (newdata->streamid);
 
   /* Add to the stream index */
-  RBTreeInsert (streamidx, newkey, newdata, 0);
+  if (!RBTreeInsert (streamidx, newkey, newdata, 0))
+  {
+    free (newkey);
+    free (newdata);
+    return 0;
+  }
 
   /* Set pointer to hash key if requested */
   if (ppkey)

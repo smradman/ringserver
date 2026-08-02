@@ -27,6 +27,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -171,7 +172,7 @@ ClientThread (void *arg)
   }
 
   /* Allocate client specific send buffer */
-  cinfo->sendbufsize = 2 * param.pktsize;
+  cinfo->sendbufsize = (size_t)2 * param.pktsize;
   cinfo->sendbuf     = (char *)malloc (cinfo->sendbufsize);
   if (!cinfo->sendbuf)
   {
@@ -180,7 +181,7 @@ ClientThread (void *arg)
   }
 
   /* Allocate client specific receive buffer */
-  cinfo->recvbufsize = 10 * param.pktsize;
+  cinfo->recvbufsize = (size_t)10 * param.pktsize;
   cinfo->recvbuf     = (char *)malloc (cinfo->recvbufsize);
   if (!cinfo->recvbuf)
   {
@@ -268,7 +269,10 @@ ClientThread (void *arg)
     free (cinfo->convertbuf);
     free (cinfo->addr);
     cinfo->addr = NULL;
+    if (cinfo->mswrite)
+      free (cinfo->mswrite->path);
     free (cinfo->mswrite);
+    cinfo->mswrite = NULL;
 
     lprintf (1, "Client setup error, disconnected: %s", cinfo->hostname);
 
@@ -289,9 +293,10 @@ ClientThread (void *arg)
   else if (cinfo->protocols == PROTO_HTTP)
     cinfo->type = CLIENT_HTTP;
 
-  /* Set thread active status */
-  if (mytdp->td_state == TDS_SPAWNING)
-    mytdp->td_state = TDS_ACTIVE;
+  /* Set thread active status, atomically, so a concurrent TDS_CLOSE
+   * request cannot be clobbered by this transition */
+  ThreadState expected = TDS_SPAWNING;
+  atomic_compare_exchange_strong (&mytdp->td_state, &expected, TDS_ACTIVE);
 
   /* Main client loop, delegating processing and data flow */
   while (mytdp->td_state != TDS_CLOSE)
@@ -517,6 +522,7 @@ ClientThread (void *arg)
   if (cinfo->mswrite)
   {
     ds_streamproc (cinfo->mswrite, NULL, cinfo->hostname);
+    free (cinfo->mswrite->path);
     free (cinfo->mswrite);
     cinfo->mswrite = NULL;
   }
@@ -659,6 +665,9 @@ ClientRecv (ClientInfo *cinfo)
 
       /* Receive the frame payload */
       nread = RecvData (cinfo, cinfo->recvbuf, (size_t)payload_length, 1);
+
+      if (nread < 0)
+        return nread;
 
       /* Unmask WebSocket payload */
       if (cinfo->recvlength >= payload_length)
@@ -823,6 +832,11 @@ SendDataMB (ClientInfo *cinfo, void *buffer[], size_t buflen[],
   /* Send each buffer in sequence */
   for (idx = 0; idx < bufcount; idx++)
   {
+    /* Nothing to send for a zero-length buffer; the inner loop never
+     * executing must not be mistaken for a fatal send error below */
+    if (buflen[idx] == 0)
+      continue;
+
     /* Loop until entire buffer has been sent, polling socket as needed */
     for (written = 0, nsent = 0;
          written < buflen[idx] && nsent >= 0;
@@ -869,6 +883,10 @@ SendDataMB (ClientInfo *cinfo, void *buffer[], size_t buflen[],
           pollret = 1;
           if (nsent == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
             pollret = PollSocket (cinfo->socket, 0, 1, config.netiotimeout * 1000);
+          else if (nsent == -1 && errno == EINTR)
+          {
+            continue; /* Interrupted, retry send() */
+          }
           else if (nsent < 0)
             break;
           else if (nsent == 0)
@@ -992,22 +1010,10 @@ RecvData (ClientInfo *cinfo, void *buffer, size_t requested, int fulfill)
   size_t nread = 0;
   size_t receivable;
   char *recvptr;
-  char peekbyte[1];
 
   if (!cinfo)
   {
     return -1;
-  }
-
-  /* Check if socket has been disconnected, but only if there is no
-   * buffered data remaining to process.  TLS connections cannot be checked. */
-  if (!cinfo->tlsctx && cinfo->recvlength <= cinfo->recvconsumed)
-  {
-    if (recv (cinfo->socket, peekbyte, 1, MSG_PEEK) == 0)
-    {
-      cinfo->socketerr = -2;
-      return -2;
-    }
   }
 
   if (requested > cinfo->recvbufsize)
@@ -1017,6 +1023,10 @@ RecvData (ClientInfo *cinfo, void *buffer, size_t requested, int fulfill)
     cinfo->socketerr = -1;
     return -1;
   }
+
+  /* Orderly shutdown is detected by recv() returning 0 in the receive
+   * loop below once buffered data has been consumed; buffered data is
+   * always processed before a disconnect is reported. */
 
   /* Shift previously consumed bytes from receive buffer */
   if (cinfo->recvconsumed > 0)
@@ -1041,8 +1051,8 @@ RecvData (ClientInfo *cinfo, void *buffer, size_t requested, int fulfill)
   receivable = cinfo->recvbufsize - cinfo->recvlength;
 
   /* Deadline for total receive time, to prevent slow trickle attacks.
-   * Only meaningful when netiotimeout > 0 (i.e. not during shutdown). */
-  nstime_t recv_deadline = NSnow () + (nstime_t)NSTMODULUS * config.netiotimeout * 2;
+   * Computed lazily below, only when a retry wait is actually needed. */
+  nstime_t recv_deadline = 0;
 
   while ((cinfo->recvlength + nread) < requested)
   {
@@ -1068,13 +1078,19 @@ RecvData (ClientInfo *cinfo, void *buffer, size_t requested, int fulfill)
         return 0;
 
       /* Check total elapsed time to prevent slow trickle attacks.
-       * Skip this check during shutdown (netiotimeout == 0) to avoid
-       * a misleading "slow trickle protection" log message. */
-      if (param.shutdownsig == 0 && NSnow () > recv_deadline)
+       * Skipped when the network I/O timeout is disabled (0), which
+       * includes shutdown. */
+      if (config.netiotimeout > 0 && param.shutdownsig == 0)
       {
-        lprintf (0, "[%s] Total receive deadline exceeded (slow trickle protection)", cinfo->hostname);
-        cinfo->socketerr = -1;
-        return -1;
+        if (recv_deadline == 0)
+          recv_deadline = NSnow () + (nstime_t)NSTMODULUS * config.netiotimeout * 2;
+
+        if (NSnow () > recv_deadline)
+        {
+          lprintf (0, "[%s] Total receive deadline exceeded (slow trickle protection)", cinfo->hostname);
+          cinfo->socketerr = -1;
+          return -1;
+        }
       }
 
       /* Poll up to socket timeout value (in seconds) */
@@ -1424,12 +1440,6 @@ PollSocket (int socket, int readability, int writability, int timeout_ms)
   if (writability)
     pfd.events |= POLLOUT;
 
-  /* Quick check with no timeout to avoid timer setup if not needed */
-  int quick_result = poll (&pfd, 1, 0);
-  if (quick_result > 0)
-    return quick_result;
-
-  /* Poll with timeout */
   return poll (&pfd, 1, timeout_ms);
 } /* End of PollSocket() */
 

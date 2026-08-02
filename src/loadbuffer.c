@@ -616,6 +616,9 @@ LoadBufferV3 (char *ringfile_v3)
 
     packetptr = (RingPacket *)packetbuffer;
 
+    /* Ensure stream ID is null-terminated before string operations */
+    packetptr->streamid[sizeof (packetptr->streamid) - 1] = '\0';
+
     const uint32_t slot_payload = old_pktsize - (uint32_t)sizeof (RingPacket);
     if (packetptr->datasize > slot_payload)
     {
