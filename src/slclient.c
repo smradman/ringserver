@@ -72,8 +72,8 @@
 
 /* Define list of valid characters for selectors, labels and station IDs */
 #define VALIDSELECTCHARS "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?*_-!"
-#define VALIDLABELCHARS  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?*_-"
-#define VALIDSTAIDCHARS  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?*_"
+#define VALIDLABELCHARS "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?*_-"
+#define VALIDSTAIDCHARS "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?*_"
 
 /* Define the number of no-action loops that trigger the throttle */
 #define THROTTLE_TRIGGER 10
@@ -243,8 +243,8 @@ SLHandleCmd (ClientInfo *cinfo)
       Stack *stack;
       RBNode *rbnode;
       nstime_t newesttime = NSTUNSET;
-      char *newmatch  = NULL;
-      char *newreject = NULL;
+      char *newmatch      = NULL;
+      char *newreject     = NULL;
 
       /* Save reader position values to restore after any errors */
       int64_t saved_pktoffset = cinfo->reader->pktoffset;
@@ -903,7 +903,6 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     {
       if (!slinfo->batch && SendReply (cinfo, "OK", ERROR_NONE, NULL))
         return -1;
-
 
       slinfo->proto_major = proto_major;
       slinfo->proto_minor = proto_minor;
@@ -1962,12 +1961,12 @@ HandleInfo_v3 (ClientInfo *cinfo, CmdToken *cmd)
 static int
 HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
 {
-  char *json_string = NULL;
+  char *json_string   = NULL;
   const char *item    = NULL;
   const char *station = NULL;
-  char *matchregex  = NULL;
-  char *rejectregex = NULL;
-  int errflag = 0;
+  char *matchregex    = NULL;
+  char *rejectregex   = NULL;
+  int errflag         = 0;
 
   Selector selector = {.string = {0}, .convert = CONVERT_NONE, .next = NULL};
 
@@ -2412,7 +2411,13 @@ GetReqStationID (RBTree *tree, char *staid)
     stationid->datastart = NSTUNSET;
     stationid->selectors = NULL;
 
-    RBTreeInsert (tree, newkey, stationid, 0);
+    if (!RBTreeInsert (tree, newkey, stationid, 0))
+    {
+      lprintf (0, "%s: Error inserting new node", __func__);
+      free (newkey);
+      free (stationid);
+      return 0;
+    }
   }
 
   return stationid;

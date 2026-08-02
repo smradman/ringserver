@@ -427,6 +427,10 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
   size_t err_written  = 0;
   size_t out_overflow = 0;
   size_t err_overflow = 0;
+  char *auth_program  = NULL;
+  char **auth_argv    = NULL;
+  int have_program    = 0;
+  int argv_copy_ok    = 1;
 
   if (!envp || !output || !error)
   {
@@ -434,10 +438,53 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
     return -1;
   }
 
-  if (!config.auth.program)
+  /* AuthCommand is a dynamic config parameter that a config reload can
+   * change out from under this thread while the child process is running,
+   * so copy the program and argument vector under the config lock */
+  pthread_rwlock_rdlock (&config.config_rwlock);
+
+  if (config.auth.program)
+  {
+    have_program = 1;
+    auth_program = strdup (config.auth.program);
+  }
+
+  if (config.auth.argv)
+  {
+    int argv_count = 0;
+
+    while (config.auth.argv[argv_count])
+      argv_count++;
+
+    if ((auth_argv = calloc (argv_count + 1, sizeof (char *))) != NULL)
+    {
+      for (int idx = 0; idx < argv_count; idx++)
+      {
+        if ((auth_argv[idx] = strdup (config.auth.argv[idx])) == NULL)
+        {
+          argv_copy_ok = 0;
+          break;
+        }
+      }
+    }
+    else
+    {
+      argv_copy_ok = 0;
+    }
+  }
+
+  pthread_rwlock_unlock (&config.config_rwlock);
+
+  if (!have_program)
   {
     lprintf (0, "%s() No auth program configured", __func__);
-    return -1;
+    goto cleanup;
+  }
+
+  if (!auth_program || !argv_copy_ok)
+  {
+    lprintf (0, "%s() Error allocating memory for auth program/arguments copy", __func__);
+    goto cleanup;
   }
 
   /* Create pipes for stdout and stderr */
@@ -466,21 +513,21 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
 
   if (config.verbose >= 2)
   {
-    lprintf (2, "Running auth program: %s", config.auth.program);
+    lprintf (2, "Running auth program: %s", auth_program);
 
-    if (config.auth.argv)
+    if (auth_argv)
     {
-      for (int idx = 0; config.auth.argv[idx]; idx++)
+      for (int idx = 0; auth_argv[idx]; idx++)
       {
         if (idx == 0)
           continue;
-        lprintf (2, "  Arg[%d]: %s", idx, config.auth.argv[idx]);
+        lprintf (2, "  Arg[%d]: %s", idx, auth_argv[idx]);
       }
     }
   }
 
   /* Spawn the process */
-  if ((status = posix_spawn (&pid, config.auth.program, &actions, NULL, config.auth.argv, envp)) != 0)
+  if ((status = posix_spawn (&pid, auth_program, &actions, NULL, auth_argv, envp)) != 0)
   {
     lprintf (0, "%s() Could not spawn process, status: %d, %s", __func__, status, strerror (status));
     pid = -1;
@@ -505,8 +552,8 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
     clock_gettime (CLOCK_MONOTONIC, &deadline);
     deadline.tv_sec += timeout_seconds;
 
-    int out_open = 1;
-    int err_open = 1;
+    int out_open  = 1;
+    int err_open  = 1;
     int timed_out = 0;
 
     while (out_open || err_open)
@@ -520,14 +567,14 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
       if (remaining_ms <= 0)
       {
         lprintf (1, "%s() Process (%s) did not exit after %u seconds, killing",
-                 __func__, config.auth.program, timeout_seconds);
+                 __func__, auth_program, timeout_seconds);
         kill (pid, SIGKILL);
         timed_out = 1;
         break;
       }
 
       struct pollfd fds[2];
-      int nfds = 0;
+      int nfds    = 0;
       int out_idx = -1;
 
       if (out_open)
@@ -562,10 +609,10 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
         if (!(fds[pi].revents & (POLLIN | POLLHUP | POLLERR)))
           continue;
 
-        int is_out      = (pi == out_idx);
-        char *buf       = is_out ? output : error;
-        size_t bufsz    = is_out ? output_size : error_size;
-        size_t *written = is_out ? &out_written : &err_written;
+        int is_out       = (pi == out_idx);
+        char *buf        = is_out ? output : error;
+        size_t bufsz     = is_out ? output_size : error_size;
+        size_t *written  = is_out ? &out_written : &err_written;
         size_t *overflow = is_out ? &out_overflow : &err_overflow;
 
         for (;;)
@@ -640,7 +687,7 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
   if (WIFEXITED (status))
   {
     lprintf (3, "%s() Process (%s) exited with status %d",
-             __func__, config.auth.program, WEXITSTATUS (status));
+             __func__, auth_program, WEXITSTATUS (status));
 
     if (error[0])
       lprintf (0, "%s() Error from auth program: %s", __func__, error);
@@ -650,7 +697,7 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
   else if (WIFSIGNALED (status))
   {
     lprintf (3, "%s() Process (%s) terminated by signal %d",
-             __func__, config.auth.program, WTERMSIG (status));
+             __func__, auth_program, WTERMSIG (status));
 
     if (error[0])
       lprintf (0, "%s() Error from auth program: %s", __func__, error);
@@ -667,6 +714,14 @@ cleanup:
     close (stderr_pipe[0]);
   if (stderr_pipe[1] != -1)
     close (stderr_pipe[1]);
+
+  free (auth_program);
+  if (auth_argv)
+  {
+    for (int idx = 0; auth_argv[idx]; idx++)
+      free (auth_argv[idx]);
+    free (auth_argv);
+  }
 
   return exit_status;
 }

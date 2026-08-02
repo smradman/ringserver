@@ -91,7 +91,7 @@ extern int
 ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
 {
   DataStreamGroup *foundgroup = NULL;
-  DSstrlist *fnlist = NULL;
+  DSstrlist *fnlist           = NULL;
   DSstrlist *fnptr;
   struct tm ctm;
   time_t curtime;
@@ -573,6 +573,8 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
       {
         lprintf (0, "[%s] ds_streamproc: write returned 0 for %s, aborting record write",
                  hostname, foundgroup->filename);
+        /* Restore modtime so ds_closeidle() can reap this stream */
+        foundgroup->modtime = time (NULL);
         return -1;
       }
 
@@ -582,6 +584,7 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
         {
           lprintf (0, "[%s] ds_streamproc: failed to write record: %s (%s)",
                    hostname, strerror (errno), foundgroup->filename);
+          foundgroup->modtime = time (NULL);
           return -1;
         }
         else
@@ -597,6 +600,7 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
     {
       lprintf (0, "[%s] ds_streamproc: Tried 10 times to write record, interrupted each time",
                hostname);
+      foundgroup->modtime = time (NULL);
       return -1;
     }
 
@@ -796,7 +800,7 @@ ds_getstream (DataStream *datastream, const char *defkey, char *filename,
     foundgroup->modtime = curtime;
     strncpy (foundgroup->filename, filename, sizeof (foundgroup->filename) - 1);
     foundgroup->filename[sizeof (foundgroup->filename) - 1] = '\0';
-    foundgroup->next = NULL;
+    foundgroup->next                                        = NULL;
 
     /* Set the stream root if this is the first entry */
     if (datastream->grouproot == NULL)

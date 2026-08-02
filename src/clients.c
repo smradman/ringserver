@@ -1392,8 +1392,10 @@ RecvLine (ClientInfo *cinfo)
   }
 
   /* Determine first and last terminator */
-  char *firstterminator = (nl && cr) ? (nl < cr) ? nl : cr : (nl) ? nl : cr;
-  char *lastterminator  = (nl && cr) ? (nl > cr) ? nl : cr : (nl) ? nl : cr;
+  char *firstterminator = (nl && cr) ? (nl < cr) ? nl : cr : (nl) ? nl
+                                                                  : cr;
+  char *lastterminator  = (nl && cr) ? (nl > cr) ? nl : cr : (nl) ? nl
+                                                                  : cr;
 
   /* Ensure the last terminator, if different, directly follows first */
   if (firstterminator != lastterminator &&
@@ -1509,7 +1511,15 @@ GetStreamNode (RBTree *tree, pthread_mutex_t *plock, char *streamid,
   strncpy (stream->streamid, streamid, sizeof (stream->streamid) - 1);
   stream->streamid[sizeof (stream->streamid) - 1] = '\0';
 
-  RBTreeInsert (tree, newkey, stream, 0);
+  if (!RBTreeInsert (tree, newkey, stream, 0))
+  {
+    pthread_mutex_unlock (plock);
+    lprintf (0, "GetStreamNode: Error inserting new node");
+    free (newkey);
+    free (stream);
+    return 0;
+  }
+
   pthread_mutex_unlock (plock);
 
   *new = 1;

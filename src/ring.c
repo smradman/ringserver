@@ -83,6 +83,7 @@ static RingStream *GetStreamIdx (RBTree *streamidx, char *streamid);
 static int DelStreamIdx (RBTree *streamidx, char *streamid);
 static int64_t ReadFull (int fd, uint8_t *buffer, uint64_t size);
 static int64_t WriteFull (int fd, const uint8_t *buffer, uint64_t size);
+static void FreeRingBuffer (void);
 
 /***************************************************************************
  * LoadPktTime / StorePktTime:
@@ -164,7 +165,7 @@ WriteFull (int fd, const uint8_t *buffer, uint64_t size)
 
   while (total < size)
   {
-    chunk = (size - total > CHUNKIO_MAXCHUNK) ? CHUNKIO_MAXCHUNK : (size_t)(size - total);
+    chunk    = (size - total > CHUNKIO_MAXCHUNK) ? CHUNKIO_MAXCHUNK : (size_t)(size - total);
     nwritten = write (fd, buffer + total, chunk);
 
     if (nwritten < 0 && errno == EINTR)
@@ -181,6 +182,30 @@ WriteFull (int fd, const uint8_t *buffer, uint64_t size)
 
   return (int64_t)total;
 } /* End of WriteFull() */
+
+/***************************************************************************
+ * FreeRingBuffer:
+ *
+ * Release the ring packet buffer allocated in param.ringbuffer, either
+ * unmapping or freeing it depending on how it was obtained, and reset
+ * the pointer to NULL.
+ ***************************************************************************/
+static void
+FreeRingBuffer (void)
+{
+  if (config.memorymapring && !config.volatilering)
+  {
+    if (munmap ((void *)param.ringbuffer, config.ringsize))
+    {
+      lprintf (0, "%s(): error unmapping ring file: %s", __func__, strerror (errno));
+    }
+  }
+  else
+  {
+    free (param.ringbuffer);
+  }
+  param.ringbuffer = NULL;
+} /* End of FreeRingBuffer() */
 
 /***************************************************************************
  * RingInitialize:
@@ -213,6 +238,7 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
   int corruptring = 0;
   int ringinit    = 0;
   int replacing   = 0;
+  uint16_t ring_version;
   ssize_t rv;
   RingPacket *packetptr;
   RingStream *streamptr;
@@ -403,6 +429,7 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
       {
         lprintf (0, "%s(): error reading ring packet buffer into memory: %s",
                  __func__, strerror (errno));
+        FreeRingBuffer ();
         return -1;
       }
     }
@@ -413,14 +440,17 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
       memcmp (pRBV3_SIGNATURE (param.ringbuffer), RING_SIGNATURE, RING_SIGNATURE_LENGTH) == 0 &&
       *pRBV3_VERSION (param.ringbuffer) != RING_VERSION)
   {
-    lprintf (0, "Packet buffer version %u detected", *pRBV3_VERSION (param.ringbuffer));
-    return *pRBV3_VERSION (param.ringbuffer);
+    ring_version = *pRBV3_VERSION (param.ringbuffer);
+    lprintf (0, "Packet buffer version %u detected", ring_version);
+    FreeRingBuffer ();
+    return ring_version;
   }
 
   /* Initialize volatile ring packet buffer parameters */
   if ((param.streamidx = RBTreeCreate (KeyCompare, free, free)) == NULL)
   {
     lprintf (0, "%s(): error allocating stream index tree", __func__);
+    FreeRingBuffer ();
     return -1;
   }
   param.datastart = param.ringbuffer + headersize;
@@ -490,6 +520,9 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
     if ((streamidxfd = open (streamfilename, O_RDONLY, 0)) < 0)
     {
       lprintf (0, "%s(): error opening %s: %s", __func__, streamfilename, strerror (errno));
+      RBTreeDestroy (param.streamidx);
+      param.streamidx = NULL;
+      FreeRingBuffer ();
       return -1;
     }
 
@@ -498,6 +531,9 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
     {
       lprintf (0, "%s(): error stating %s: %s", __func__, streamfilename, strerror (errno));
       close (streamidxfd);
+      RBTreeDestroy (param.streamidx);
+      param.streamidx = NULL;
+      FreeRingBuffer ();
       return -1;
     }
 
@@ -523,6 +559,9 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
       {
         lprintf (0, "%s(): error reading %s: %s", __func__, streamfilename, strerror (errno));
         close (streamidxfd);
+        RBTreeDestroy (param.streamidx);
+        param.streamidx = NULL;
+        FreeRingBuffer ();
         return -1;
       }
     }
@@ -530,6 +569,9 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
     {
       lprintf (0, "%s(): stream index file empty!", __func__);
       close (streamidxfd);
+      RBTreeDestroy (param.streamidx);
+      param.streamidx = NULL;
+      FreeRingBuffer ();
       return -1;
     }
 
@@ -585,20 +627,8 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
   if (corruptring)
   {
     RBTreeDestroy (param.streamidx);
-
-    if (config.memorymapring)
-    {
-      /* Unmap the ring file */
-      if (munmap ((void *)param.ringbuffer, config.ringsize))
-      {
-        lprintf (0, "%s(): error unmapping ring file: %s", __func__, strerror (errno));
-      }
-    }
-    else
-    {
-      free (param.ringbuffer);
-    }
-    param.ringbuffer = NULL;
+    param.streamidx = NULL;
+    FreeRingBuffer ();
 
     /* Close the ring file and re-init the descriptor */
     if (close (*ringfd))
@@ -808,9 +838,9 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
   /* Details captured for log messages emitted after the locks are released */
   int log_removed_packet = 0;
   char removedpkt_streamid[MAXSTREAMID];
-  uint64_t removedpkt_pktid  = 0;
-  int64_t removedpkt_offset  = 0;
-  int log_removed_stream     = 0;
+  uint64_t removedpkt_pktid = 0;
+  int64_t removedpkt_offset = 0;
+  int log_removed_stream    = 0;
   char removedstream_streamid[MAXSTREAMID];
   int log_added_stream = 0;
   char addedstream_streamid[MAXSTREAMID];
@@ -899,6 +929,7 @@ RingWrite (RingPacket *packet, char *packetdata, uint32_t datasize)
     log_removed_packet = 1;
     memcpy (removedpkt_streamid, earliest->streamid, sizeof (removedpkt_streamid));
     removedpkt_streamid[sizeof (removedpkt_streamid) - 1] = '\0';
+
     removedpkt_pktid  = earliest->pktid;
     removedpkt_offset = earliest->offset;
 
@@ -1216,9 +1247,9 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
   int64_t earliestoffset;
   int64_t latestoffset;
   int64_t eoboffset;
-  const int64_t maxoffset    = param.maxoffset;
-  const uint32_t pktsize     = config.pktsize;
-  pcre2_match_context *mctx  = GetMatchContext ();
+  const int64_t maxoffset   = param.maxoffset;
+  const uint32_t pktsize    = config.pktsize;
+  pcre2_match_context *mctx = GetMatchContext ();
 
   if (!reader || !packet)
     return RINGID_ERROR;
@@ -1514,11 +1545,11 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
   nstime_t pkttime;
   int64_t offset;
   uint64_t skipped = 0;
+  uint8_t found    = 0;
   uint8_t skip;
-  uint8_t found = 0;
-  const int64_t maxoffset    = param.maxoffset;
-  const uint32_t pktsize     = config.pktsize;
-  pcre2_match_context *mctx  = GetMatchContext ();
+  const int64_t maxoffset   = param.maxoffset;
+  const uint32_t pktsize    = config.pktsize;
+  pcre2_match_context *mctx = GetMatchContext ();
 
   if (!reader)
     return RINGID_ERROR;
@@ -1669,9 +1700,9 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
   int64_t soffset;
   uint64_t count = 0;
   uint8_t skip;
-  const int64_t maxoffset    = param.maxoffset;
-  const uint32_t pktsize     = config.pktsize;
-  pcre2_match_context *mctx  = GetMatchContext ();
+  const int64_t maxoffset   = param.maxoffset;
+  const uint32_t pktsize    = config.pktsize;
+  pcre2_match_context *mctx = GetMatchContext ();
 
   if (!reader)
     return RINGID_ERROR;

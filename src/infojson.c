@@ -630,7 +630,16 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
         station_details->streams = NULL;
       }
 
-      StackUnshift (station_stack, station_details);
+      if (StackUnshift (station_stack, station_details) == -1)
+      {
+        lprintf (0, "[%s] Error allocating memory", cinfo->hostname);
+        if (station_details->streams)
+          StackDestroy (station_details->streams, free);
+        free (station_details);
+        station_details = NULL;
+        error           = 1;
+        break;
+      }
     }
     /* Otherwise, update station entry */
     else
@@ -672,7 +681,13 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
       stream_details->earliesttime = ringstream->earliestdstime;
       stream_details->latesttime   = ringstream->latestdetime;
 
-      StackUnshift (station_details->streams, stream_details);
+      if (StackUnshift (station_details->streams, stream_details) == -1)
+      {
+        lprintf (0, "[%s] Error allocating memory", cinfo->hostname);
+        free (stream_details);
+        error = 1;
+        break;
+      }
     }
   }
 
@@ -792,6 +807,10 @@ info_add_connections (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matche
   if ((connections = yyjson_mut_obj_add_obj (doc, root, "connections")) == NULL ||
       (client_array = yyjson_mut_obj_add_arr (doc, connections, "client")) == NULL)
   {
+    if (match_code)
+      pcre2_code_free (match_code);
+    if (match_data)
+      pcre2_match_data_free (match_data);
     return NULL;
   }
 

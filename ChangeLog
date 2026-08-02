@@ -21,6 +21,11 @@
 	- Reject out-of-range client-supplied packet IDs in DataLink WRITE.
 	- Repeat the shutdown request pass so clients accepted during shutdown are closed.
 	- Avoid rewriting transfer logs repeatedly during shutdown.
+	- Fix directory handle leak and double-free hazard on scan-thread respawn in mseedscan.
+	- Fix ring buffer and stream index leaks on RingInitialize early-return paths.
+	- Fix archive streams being pinned open after write errors so idle closing can reap them.
+	- Fix use-after-free of AuthCommand settings during config reload by copying under lock.
+	- Fix leaks on allocation-failure paths in stream/station tracking and INFO generation.
 	- Add an end-to-end test suite in test/ and a 'make test' target, requires python3.
 	- Update libmseed to v3.5.3.
 	- Update mbedtls to v3.6.7.

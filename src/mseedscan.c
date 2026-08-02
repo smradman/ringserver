@@ -79,7 +79,6 @@
 #define MSSCAN_MINRECLEN 40
 #define MSSCAN_READLEN 128
 
-
 /* Structure used as the data for B-tree of file entries */
 typedef struct filenode
 {
@@ -152,6 +151,9 @@ MS_ScanThread (void *arg)
   /* Initialize scanning parameters */
   if (Initialize (mssinfo) < 0)
   {
+    RBTreeDestroy (mssinfo->filetree);
+    mssinfo->filetree = NULL;
+
     mytdp->td_state = TDS_CLOSED;
 
     return 0;
@@ -263,8 +265,8 @@ MS_ScanThread (void *arg)
       /* Calculate instantaneous reception rates and smooth with EMA (alpha=0.25, ~4s window) */
       double rxpktrate_inst  = (double)(mssinfo->rxpackets[0] - mssinfo->rxpackets[1]) / mssinfo->scantime;
       double rxbyterate_inst = (double)(mssinfo->rxbytes[0] - mssinfo->rxbytes[1]) / mssinfo->scantime;
-      mssinfo->rxpacketrate = 0.25 * rxpktrate_inst + 0.75 * mssinfo->rxpacketrate;
-      mssinfo->rxbyterate   = 0.25 * rxbyterate_inst + 0.75 * mssinfo->rxbyterate;
+      mssinfo->rxpacketrate  = 0.25 * rxpktrate_inst + 0.75 * mssinfo->rxpacketrate;
+      mssinfo->rxbyterate    = 0.25 * rxbyterate_inst + 0.75 * mssinfo->rxbyterate;
 
       /* Shift current values to history values */
       mssinfo->rxpackets[1] = mssinfo->rxpackets[0];
@@ -309,20 +311,39 @@ MS_ScanThread (void *arg)
 
   /* Release file tracking binary tree */
   if (mssinfo->filetree)
+  {
     RBTreeDestroy (mssinfo->filetree);
+    mssinfo->filetree = NULL;
+  }
 
-  /* Free regex matching memory */
+  /* Free regex matching memory, mssinfo is re-used if the thread is
+   * respawned so these must be cleared to avoid a double free */
   if (mssinfo->fnmatch)
+  {
     pcre2_code_free (mssinfo->fnmatch);
+    mssinfo->fnmatch = NULL;
+  }
   if (mssinfo->fnmatch_data)
+  {
     pcre2_match_data_free (mssinfo->fnmatch_data);
+    mssinfo->fnmatch_data = NULL;
+  }
   if (mssinfo->fnreject)
+  {
     pcre2_code_free (mssinfo->fnreject);
+    mssinfo->fnreject = NULL;
+  }
   if (mssinfo->fnreject_data)
+  {
     pcre2_match_data_free (mssinfo->fnreject_data);
+    mssinfo->fnreject_data = NULL;
+  }
 
   if (mssinfo->readbuffer)
+  {
     free (mssinfo->readbuffer);
+    mssinfo->readbuffer = NULL;
+  }
 
   if (mssinfo->msr)
     msr3_free (&(mssinfo->msr));
@@ -475,7 +496,10 @@ ScanFiles (MSScanInfo *mssinfo, const char *targetdir, int level, time_t scantim
 
         mssinfo->recurlevel++;
         if (ScanFiles (mssinfo, filename, level, scantime) == -2)
+        {
+          ECloseDir (dir);
           return -2;
+        }
         mssinfo->recurlevel--;
       }
       continue;
@@ -553,6 +577,7 @@ ScanFiles (MSScanInfo *mssinfo, const char *targetdir, int level, time_t scantim
       if (fnode->offset < -1)
       {
         fnode->offset = -fnode->offset;
+        ECloseDir (dir);
         return -2;
       }
     }
@@ -625,12 +650,18 @@ AddFile (RBTree *filetree, const char *filename, time_t modtime)
 
   strncpy (filenode->filename, filename, sizeof (filenode->filename) - 1);
   filenode->filename[sizeof (filenode->filename) - 1] = '\0';
-  filenode->offset    = 0;
-  filenode->modtime   = modtime;
-  filenode->scantime  = 0;
-  filenode->idledelay = 0;
+  filenode->offset                                    = 0;
+  filenode->modtime                                   = modtime;
+  filenode->scantime                                  = 0;
+  filenode->idledelay                                 = 0;
 
-  RBTreeInsert (filetree, filekey, filenode, 0);
+  /* Add to the file tree */
+  if (!RBTreeInsert (filetree, filekey, filenode, 0))
+  {
+    free (filekey);
+    free (filenode);
+    return 0;
+  }
 
   return filenode;
 } /* End of AddFile() */
@@ -1349,10 +1380,10 @@ SortEDirEntries (EDIR *edirp)
 static EDIR *
 EOpenDir (const char *dirname)
 {
-  DIR *dirp = NULL;
-  EDIR *edirp = NULL;
-  struct dirent *de = NULL;
-  struct edirent *ede = NULL;
+  DIR *dirp               = NULL;
+  EDIR *edirp             = NULL;
+  struct dirent *de       = NULL;
+  struct edirent *ede     = NULL;
   struct edirent *prevede = NULL;
   int namelen;
 
@@ -1394,9 +1425,8 @@ EOpenDir (const char *dirname)
       return NULL;
     }
 
-    strncpy (ede->d_name, de->d_name, sizeof (ede->d_name) - 1);
-    ede->d_name[sizeof (ede->d_name) - 1] = '\0';
-    ede->prev  = prevede;
+    memcpy (ede->d_name, de->d_name, namelen + 1); /* includes NUL terminator */
+    ede->prev = prevede;
 
     /* Add new enhanced directory entry to the list */
     if (prevede == NULL)
