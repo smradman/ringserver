@@ -304,8 +304,8 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
   yyjson_mut_val *stream_array;
   yyjson_mut_val *stream;
 
-  Stack *ringstreams;
-  RingStream *ringstream;
+  RingStream *ringstreams;
+  uint32_t ringstreams_count;
 
   char string32[32]    = {0};
   uint32_t streamcount = 0;
@@ -331,7 +331,7 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
   }
 
   /* If matchexpr overrides, temporarily clear the reader's persistent match/reject
-   * so GetStreamsStack only applies server-side allowed/forbidden filters */
+   * so GetStreams() only applies server-side allowed/forbidden filters */
   if (match_code && cinfo->reader)
   {
     saved_match                = cinfo->reader->match;
@@ -344,8 +344,8 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
     cinfo->reader->reject_data = NULL;
   }
 
-  /* Get copy of streams as a Stack, sorted by stream ID */
-  ringstreams = GetStreamsStack (cinfo->reader);
+  /* Get copy of streams as an array, sorted by stream ID */
+  int get_streams_rc = GetStreams (cinfo->reader, &ringstreams, &ringstreams_count);
 
   /* Restore the reader's persistent match/reject */
   if (saved_match || saved_reject)
@@ -356,9 +356,9 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
     cinfo->reader->reject_data = saved_reject_data;
   }
 
-  if (ringstreams == NULL)
+  if (get_streams_rc)
   {
-    lprintf (0, "[%s] Error getting streams stack", cinfo->hostname);
+    lprintf (0, "[%s] Error getting streams", cinfo->hostname);
     if (match_code)
       pcre2_code_free (match_code);
     if (match_data)
@@ -369,7 +369,7 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
   /* Create JSON */
   if ((stream_array = yyjson_mut_obj_add_arr (doc, root, "stream")) == NULL)
   {
-    StackDestroy (ringstreams, free);
+    free (ringstreams);
     if (match_code)
       pcre2_code_free (match_code);
     if (match_data)
@@ -379,8 +379,10 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
 
   /* Add streams to array */
   int match_limit_logged = 0;
-  while ((ringstream = (RingStream *)StackPop (ringstreams)))
+  for (uint32_t i = 0; i < ringstreams_count; i++)
   {
+    RingStream *ringstream = &ringstreams[i];
+
     /* Skip if stream ID does not match provided expression */
     if (match_code)
     {
@@ -397,7 +399,6 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
                    cinfo->hostname);
           match_limit_logged = 1;
         }
-        free (ringstream);
         continue;
       }
     }
@@ -426,8 +427,6 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
     yyjson_mut_obj_add_real (doc, stream, "data_latency",
                              (double)MS_NSTIME2EPOCH ((NSnow () - ringstream->latestdetime)));
 
-    free (ringstream);
-
     if (streamcount == UINT32_MAX)
     {
       lprintf (0, "[%s] Error: stream count exceeded UINT32_MAX", cinfo->hostname);
@@ -439,7 +438,7 @@ info_add_streams (ClientInfo *cinfo, yyjson_mut_doc *doc, const char *matchexpr)
 
   yyjson_mut_obj_add_uint (doc, root, "stream_count", streamcount);
 
-  StackDestroy (ringstreams, free);
+  free (ringstreams);
 
   if (match_code)
     pcre2_code_free (match_code);
@@ -466,8 +465,8 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
   yyjson_mut_val *stream_array;
   yyjson_mut_val *stream;
 
-  Stack *ringstreams;
-  RingStream *ringstream;
+  RingStream *ringstreams;
+  uint32_t ringstreams_count;
 
   struct station_details
   {
@@ -516,12 +515,10 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
     return NULL;
   }
 
-  /* Get copy of streams as a Stack, sorted by stream ID */
-  ringstreams = GetStreamsStack (cinfo->reader);
-
-  if (ringstreams == NULL)
+  /* Get copy of streams as an array, sorted by stream ID */
+  if (GetStreams (cinfo->reader, &ringstreams, &ringstreams_count))
   {
-    lprintf (0, "[%s] Error getting streams stack", cinfo->hostname);
+    lprintf (0, "[%s] Error getting streams", cinfo->hostname);
     if (match_code)
       pcre2_code_free (match_code);
     if (match_data)
@@ -532,7 +529,7 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
   if ((station_stack = StackCreate ()) == NULL)
   {
     lprintf (0, "[%s] Error allocating memory", cinfo->hostname);
-    StackDestroy (ringstreams, free);
+    free (ringstreams);
     if (match_code)
       pcre2_code_free (match_code);
     if (match_data)
@@ -542,8 +539,10 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
 
   /* Build Stacks of stations and optionally streams */
   int match_limit_logged = 0;
-  while ((ringstream = (RingStream *)StackPop (ringstreams)))
+  for (uint32_t stream_idx = 0; stream_idx < ringstreams_count; stream_idx++)
   {
+    RingStream *ringstream = &ringstreams[stream_idx];
+
     /* Skip if stream ID does not match provided expression */
     if (match_code)
     {
@@ -560,7 +559,6 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
                    cinfo->hostname);
           match_limit_logged = 1;
         }
-        free (ringstream);
         continue;
       }
     }
@@ -578,7 +576,6 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
                          chan, sizeof (chan)))
       {
         lprintf (0, "[%s] Error splitting stream ID: %s", cinfo->hostname, ringstream->streamid);
-        free (ringstream);
         error = 1;
         break;
       }
@@ -609,7 +606,6 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
       if (station_details == NULL)
       {
         lprintf (0, "[%s] Error allocating memory", cinfo->hostname);
-        free (ringstream);
         error = 1;
         break;
       }
@@ -625,8 +621,7 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
           lprintf (0, "[%s] Error allocating memory", cinfo->hostname);
           free (station_details);
           station_details = NULL;
-          free (ringstream);
-          error = 1;
+          error           = 1;
           break;
         }
       }
@@ -653,7 +648,6 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
       if (stream_details == NULL)
       {
         lprintf (0, "[%s] Error allocating memory", cinfo->hostname);
-        free (ringstream);
         error = 1;
         break;
       }
@@ -680,11 +674,9 @@ info_add_stations (ClientInfo *cinfo, yyjson_mut_doc *doc, int include_streams,
 
       StackUnshift (station_details->streams, stream_details);
     }
-
-    free (ringstream);
   }
 
-  StackDestroy (ringstreams, free);
+  free (ringstreams);
 
   if (!error)
   {

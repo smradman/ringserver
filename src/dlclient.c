@@ -1509,34 +1509,25 @@ SendRingPacket (ClientInfo *cinfo)
  * SelectedStreams:
  *
  * Determine the number of streams selected with the current match and
- * reject settings.  Since GetStreamsStack() already applies the match
- * and reject expressions the only thing left to do is count the
- * select streams returned.
+ * reject settings.  Since GetStreams() already applies the match and
+ * reject expressions the only thing left to do is count the selected
+ * streams returned.
  *
  * Returns selected stream count on success and -1 on error.
  ***************************************************************************/
 static int
 SelectedStreams (RingReader *reader)
 {
-  Stack *streams;
-  RingStream *ringstream;
-  int streamcnt = 0;
+  RingStream *streams = NULL;
+  uint32_t count      = 0;
 
   if (!reader)
     return -1;
 
-  /* Create a duplicate Stack of currently selected RingStreams */
-  streams = GetStreamsStack (reader);
+  if (GetStreams (reader, &streams, &count))
+    return -1;
 
-  /* Count the selected streams */
-  while ((ringstream = StackPop (streams)))
-  {
-    free (ringstream);
-    streamcnt++;
-  }
+  free (streams);
 
-  /* Cleanup stream stack */
-  StackDestroy (streams, free);
-
-  return streamcnt;
+  return (int)count;
 } /* End of SelectedStreams() */

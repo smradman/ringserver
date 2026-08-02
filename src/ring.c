@@ -68,7 +68,9 @@
 /* Macro to calculate pointer to RingPacket in buffer */
 #define PACKETPTR(O) ((RingPacket *)(param.datastart + (O)))
 
-static int StreamStackNodeCmp (StackNode *a, StackNode *b);
+static int StreamIDCmp (const void *a, const void *b);
+static int SnapshotStreams (RBTree *tree, RBNode *node, RingStream **array,
+                            uint32_t *count, uint32_t *capacity);
 static inline int64_t FindOffsetForID (uint64_t pktid, nstime_t *pkttime);
 static RingStream *AddStreamIdx (RBTree *streamidx, RingStream *stream, Key **ppkey);
 static RingStream *GetStreamIdx (RBTree *streamidx, char *streamid);
@@ -1681,110 +1683,118 @@ GetMatchContext (void)
 } /* End of GetMatchContext() */
 
 /***************************************************************************
- * StreamStackNodeCmp:
+ * StreamIDCmp:
  *
- * Compare two RingStream entries contained in two StackNode entries
- * as the result of strncmp() on the two stream IDs.  This function is
- * used to sort a Stack of RingStream entries by stream ID.
+ * Compare the stream IDs of two RingStream entries, for use with
+ * qsort() to sort an array of RingStream entries by stream ID.
  *
  * Return the result of strncmp() on the stream IDs.
  ***************************************************************************/
-int
-StreamStackNodeCmp (StackNode *a, StackNode *b)
+static int
+StreamIDCmp (const void *a, const void *b)
 {
-  return strncmp (((RingStream *)(a->data))->streamid,
-                  ((RingStream *)(b->data))->streamid,
+  return strncmp (((const RingStream *)a)->streamid,
+                  ((const RingStream *)b)->streamid,
                   MAXSTREAMID);
-} /* End of StreamStackNodeCmp() */
+} /* End of StreamIDCmp() */
 
 /***************************************************************************
- * GetStreamsStack:
+ * SnapshotStreams:
  *
- * Build a copy of the stream index as a Stack sorted on stream ID.
- * It is up to the caller to free the Stack, i.e. using
- * StackDestroy(stack, free).
+ * Recursively walk the stream index in stream-key order, appending a
+ * memcpy() of each RingStream entry to *array.  The array is grown
+ * with realloc() as needed; *count and *capacity are updated in place.
  *
- * If ringreader is not NULL only the streamids that match the
- * reader's limit and match expressions and do not match the reader's
- * reject expression will be included in the output Stack.
+ * This must be called with param.streamlock held.
  *
- * Return a Stack on success and 0 on error.
+ * Return 0 on success and -1 on error (allocation failure).
  ***************************************************************************/
-Stack *
-GetStreamsStack (RingReader *reader)
+static int
+SnapshotStreams (RBTree *tree, RBNode *node, RingStream **array,
+                 uint32_t *count, uint32_t *capacity)
 {
-  RingStream *snapshot = NULL;
-  size_t snapshot_count = 0;
-  RingStream *newstream;
-  RBNode *tnode;
-  Stack *streams;
-  Stack *newstreams;
-
-  /* Snapshot the stream index under streamlock as quickly as possible:
-   * walk the tree into a local Stack, then memcpy each RingStream into a
-   * contiguous array.  PCRE2 matching and result-stack construction are
-   * deferred until after the lock is released so a slow regex can no
-   * longer block packet writers waiting on streamlock. */
-  pthread_mutex_lock (&param.streamlock);
-
-  streams = StackCreate ();
-  if (streams == NULL)
-  {
-    lprintf (0, "%s(): error allocating Stack", __func__);
-    pthread_mutex_unlock (&param.streamlock);
+  if (node == tree->nil)
     return 0;
+
+  if (SnapshotStreams (tree, node->left, array, count, capacity))
+    return -1;
+
+  if (*count == *capacity)
+  {
+    /* Defensive growth; param.streamcount should pre-size exactly */
+    uint32_t new_capacity = (*capacity) ? (*capacity) * 2 : 16;
+    RingStream *grown     = (RingStream *)realloc (*array, new_capacity * sizeof (RingStream));
+    if (grown == NULL)
+      return -1;
+    *array    = grown;
+    *capacity = new_capacity;
   }
 
-  RBBuildStack (param.streamidx, streams);
+  memcpy (&(*array)[(*count)++], node->data, sizeof (RingStream));
+
+  return SnapshotStreams (tree, node->right, array, count, capacity);
+} /* End of SnapshotStreams() */
+
+/***************************************************************************
+ * GetStreams:
+ *
+ * Build a copy of the stream index as an array sorted on stream ID.
+ * It is up to the caller to free the array with free().
+ *
+ * If reader is not NULL only the streamids that match the reader's
+ * allowed and match expressions and do not match the reader's
+ * forbidden and reject expressions will be included in the output.
+ *
+ * On success *streams is set to an allocated array of *count entries,
+ * or NULL if *count is 0.
+ *
+ * Return 0 on success and -1 on error.
+ ***************************************************************************/
+int
+GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
+{
+  RingStream *snapshot    = NULL;
+  uint32_t snapshot_count = 0;
+  uint32_t snapshot_capacity;
+  uint32_t kept = 0;
+
+  if (!streams || !count)
+    return -1;
+
+  *streams = NULL;
+  *count   = 0;
+
+  /* Snapshot the stream index under streamlock as quickly as possible:
+   * walk the tree directly into a contiguous array.  PCRE2 matching and
+   * sorting are deferred until after the lock is released so a slow
+   * regex can no longer block packet writers waiting on streamlock. */
+  pthread_mutex_lock (&param.streamlock);
 
   /* Pre-size the snapshot buffer using the (atomic) streamcount as a hint;
    * fall back to dynamic growth if the tree turned out to hold more. */
-  size_t capacity = param.streamcount ? param.streamcount : 16;
-  snapshot = (RingStream *)malloc (capacity * sizeof (RingStream));
+  snapshot_capacity = param.streamcount ? param.streamcount : 16;
+  snapshot          = (RingStream *)malloc (snapshot_capacity * sizeof (RingStream));
   if (snapshot == NULL)
   {
     lprintf (0, "%s(): Error allocating snapshot", __func__);
-    StackDestroy (streams, 0);
     pthread_mutex_unlock (&param.streamlock);
-    return 0;
+    return -1;
   }
 
-  while ((tnode = (RBNode *)StackPop (streams)))
+  if (SnapshotStreams (param.streamidx, param.streamidx->root->left,
+                       &snapshot, &snapshot_count, &snapshot_capacity))
   {
-    if (snapshot_count == capacity)
-    {
-      size_t new_capacity = capacity * 2;
-      RingStream *grown = (RingStream *)realloc (snapshot,
-                                                 new_capacity * sizeof (RingStream));
-      if (grown == NULL)
-      {
-        lprintf (0, "%s(): Error growing snapshot", __func__);
-        free (snapshot);
-        StackDestroy (streams, 0);
-        pthread_mutex_unlock (&param.streamlock);
-        return 0;
-      }
-      snapshot = grown;
-      capacity = new_capacity;
-    }
-
-    memcpy (&snapshot[snapshot_count++], tnode->data, sizeof (RingStream));
+    lprintf (0, "%s(): Error growing snapshot", __func__);
+    free (snapshot);
+    pthread_mutex_unlock (&param.streamlock);
+    return -1;
   }
 
-  StackDestroy (streams, 0);
   pthread_mutex_unlock (&param.streamlock);
 
-  /* Lock released.  Now run the (potentially expensive) PCRE2 filters and
-   * build the result Stack against the snapshot. */
-  newstreams = StackCreate ();
-  if (newstreams == NULL)
-  {
-    lprintf (0, "%s(): error allocating result Stack", __func__);
-    free (snapshot);
-    return 0;
-  }
-
-  for (size_t i = 0; i < snapshot_count; i++)
+  /* Lock released.  Now run the (potentially expensive) PCRE2 filters,
+   * compacting surviving entries in place. */
+  for (uint32_t i = 0; i < snapshot_count; i++)
   {
     RingStream *stream = &snapshot[i];
 
@@ -1815,35 +1825,34 @@ GetStreamsStack (RingReader *reader)
           continue;
     }
 
-    if (!(newstream = (RingStream *)malloc (sizeof (RingStream))))
-    {
-      lprintf (0, "%s(): Error allocating memory", __func__);
-      StackDestroy (newstreams, free);
-      free (snapshot);
-      return 0;
-    }
-
-    memcpy (newstream, stream, sizeof (RingStream));
-
-    /* Use unshift operation so copied Stack is in the same order */
-    StackUnshift (newstreams, newstream);
+    if (kept != i)
+      snapshot[kept] = snapshot[i];
+    kept++;
   }
 
-  free (snapshot);
-
-  /* Sort Stack on the stream IDs if more than one entry */
-  if (newstreams->top && newstreams->top != newstreams->tail)
+  if (kept == 0)
   {
-    if (StackSort (newstreams, StreamStackNodeCmp) < 0)
-    {
-      lprintf (0, "%s(): Error sorting Stack", __func__);
-      StackDestroy (newstreams, free);
-      return 0;
-    }
+    free (snapshot);
+    return 0;
   }
 
-  return newstreams;
-} /* End of GetStreamsStack() */
+  /* Shrink to the retained count; keep the larger block on failure */
+  if (kept != snapshot_count)
+  {
+    RingStream *shrunk = (RingStream *)realloc (snapshot, kept * sizeof (RingStream));
+    if (shrunk != NULL)
+      snapshot = shrunk;
+  }
+
+  /* Sort array on the stream IDs if more than one entry */
+  if (kept > 1)
+    qsort (snapshot, kept, sizeof (RingStream), StreamIDCmp);
+
+  *streams = snapshot;
+  *count   = kept;
+
+  return 0;
+} /* End of GetStreams() */
 
 /***************************************************************************
  * FindOffsetForID:

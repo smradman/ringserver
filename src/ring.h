@@ -142,7 +142,7 @@ extern uint64_t RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pkt
 extern int UpdatePattern (pcre2_code **code, pcre2_match_data **data,
                           const char *pattern, const char *description);
 extern pcre2_match_context *GetMatchContext (void);
-extern Stack *GetStreamsStack (RingReader *reader);
+extern int GetStreams (RingReader *reader, RingStream **streams, uint32_t *count);
 
 #ifdef __cplusplus
 }
