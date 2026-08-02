@@ -28,6 +28,8 @@ Requirements: Python 3 (standard library only).
   MATCH/REJECT, streaming, INFO, error responses.
 - `test_seedlink.py` — SeedLink v3 and v4: negotiation, streaming, framing,
   INFO documents.
+- `test_auth.py` — authentication: DataLink AUTH (USERPASS/JWT), permissions,
+  the auth-required-for-streaming gate, and allowed/forbidden stream filters.
 - `test_http.py` — HTTP endpoints, gzip, access control, WebSocket transport.
 - `test_integrity.py` — data-integrity stress: concurrent write/stream,
   ring-wrap torn-read detection, lapped-reader liveness.
