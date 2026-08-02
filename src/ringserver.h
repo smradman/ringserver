@@ -192,6 +192,7 @@ struct config_s
   uint32_t pktsize;               /* Ring packet size */
   _Atomic uint32_t maxclients;    /* Enforce maximum number of clients */
   _Atomic uint32_t maxclientsperip; /* Enforce maximum number of clients per IP */
+  _Atomic uint32_t infocachettl;  /* TTL in seconds for cached INFO stream/station responses, 0 disables */
   _Atomic uint32_t clienttimeout; /* Idle client threshold in seconds, then disconnect */
   _Atomic uint32_t netiotimeout;  /* Network I/O timeout in seconds, then disconnect */
   _Atomic uint32_t tcpkeepalive_idle;     /* TCP keepalive idle seconds before probing, 0 disables */

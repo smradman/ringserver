@@ -50,6 +50,7 @@ extern char *info_json (ClientInfo *cinfo, const char *software,
                         InfoElements elements, const char *matchexpr);
 extern char *error_json (ClientInfo *cinfo, const char *software,
                          const char *code, const char *message);
+extern void InfoCacheFlush (void);
 
 #ifdef __cplusplus
 }

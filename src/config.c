@@ -191,6 +191,18 @@ static const char *reference_config_file_parts[] = {
     "#MaxClientsPerIP 0\n"
     "\n"
     "\n",
+    "# Specify the time-to-live, in seconds, for cached INFO responses that\n"
+    "# enumerate streams or stations (SeedLink INFO STREAMS/STATIONS, DataLink\n"
+    "# INFO STREAMS, HTTP /streams and related endpoints).  Repeated requests\n"
+    "# for the same information within this window are served from cache\n"
+    "# instead of being regenerated, which can reduce CPU usage on rings with\n"
+    "# many streams and frequently polling clients.  Set to 0 to disable caching.\n"
+    "# This is a dynamic parameter.\n"
+    "# Equivalent environment variable: RS_INFO_CACHE_TTL\n"
+    "\n"
+    "#InfoCacheTTL 5\n"
+    "\n"
+    "\n",
     "# Specify the maximum number of clients, regardless of protocol,\n"
     "# allowed to be connected simultaneously, set to 0 for unlimited.\n"
     "# This is a dynamic parameter.\n"
@@ -211,7 +223,6 @@ static const char *reference_config_file_parts[] = {
     "# that a network read or write operation will wait until failure, after\n"
     "# which the client is disconnected.  The default value of 10 seconds is\n"
     "# appropriate for most scenarios.\n"
-    "# \n"
     "# This is a dynamic parameter.\n"
     "# Equivalent environment variable: RS_NETIO_TIMEOUT\n"
     "\n"
@@ -1103,6 +1114,14 @@ ReadEnvironmentVariables (void)
     count++;
   }
 
+  if ((envvar = getenv ("RS_INFO_CACHE_TTL")) && strcasecmp (envvar, "DISABLE"))
+  {
+    snprintf (paramstr, sizeof (paramstr), "InfoCacheTTL %s", envvar);
+    if (SetParameter (paramstr, 0) <= 0)
+      return -1;
+    count++;
+  }
+
   if ((envvar = getenv ("RS_MAX_CLIENTS")) && strcasecmp (envvar, "DISABLE"))
   {
     snprintf (paramstr, sizeof (paramstr), "MaxClients %s", envvar);
@@ -1617,6 +1636,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   /* Saved copies of dynamic scalar fields, used to restore on parse failure */
   int saved_verbose                    = 0;
   uint32_t saved_maxclientsperip       = 0;
+  uint32_t saved_infocachettl          = 0;
   uint32_t saved_maxclients            = 0;
   uint32_t saved_clienttimeout         = 0;
   uint32_t saved_netiotimeout          = 0;
@@ -1680,6 +1700,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
 
   saved_verbose               = config.verbose;
   saved_maxclientsperip       = config.maxclientsperip;
+  saved_infocachettl          = config.infocachettl;
   saved_maxclients            = config.maxclients;
   saved_clienttimeout         = config.clienttimeout;
   saved_netiotimeout          = config.netiotimeout;
@@ -1861,6 +1882,7 @@ restore_config:
 
   config.verbose               = saved_verbose;
   config.maxclientsperip       = saved_maxclientsperip;
+  config.infocachettl          = saved_infocachettl;
   config.maxclients            = saved_maxclients;
   config.clienttimeout         = saved_clienttimeout;
   config.netiotimeout          = saved_netiotimeout;
@@ -1902,6 +1924,7 @@ restore_config:
  * [D] ServerID <server id>
  * [D] Verbosity <level>
  * [D] MaxClientsPerIP <max>
+ * [D] InfoCacheTTL <seconds>
  * [D] MaxClients <max>
  * [D] ClientTimeout <timeout>
  * [D] NetIOTimeout <timeout>
@@ -2222,6 +2245,16 @@ SetParameter (const char *paramstring, int dynamiconly)
     }
 
     config.maxclientsperip = u32val;
+  }
+  else if (!strcasecmp ("InfoCacheTTL", field[0]) && fieldcount == 2)
+  {
+    if (sscanf (field[1], "%" SCNu32, &u32val) != 1)
+    {
+      lprintf (0, "Error with %s config parameter: %s", field[0], paramstring);
+      return -1;
+    }
+
+    config.infocachettl = u32val;
   }
   else if (!strcasecmp ("MaxClients", field[0]) && fieldcount == 2)
   {

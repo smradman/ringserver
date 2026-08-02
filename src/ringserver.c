@@ -45,6 +45,7 @@
 #include "dlclient.h"
 #include "dsarchive.h"
 #include "generic.h"
+#include "infojson.h"
 #include "loadbuffer.h"
 #include "logging.h"
 #include "mseedscan.h"
@@ -106,6 +107,7 @@ struct config_s config = {
     .pktsize               = sizeof (RingPacket) + 512,
     .maxclients            = 600,
     .maxclientsperip       = 0,
+    .infocachettl          = 5,
     .clienttimeout         = 3600,
     .netiotimeout          = 10,
     .tcpkeepalive_idle     = 60,
@@ -776,6 +778,10 @@ main (int argc, char *argv[])
           CalcUsageLogInterval_locked (time (NULL));
 
         pthread_rwlock_unlock (&config.config_rwlock);
+
+        /* Discard cached INFO responses, they may embed values (e.g. the
+         * server ID) that just changed. */
+        InfoCacheFlush ();
       }
     }
 
@@ -1698,6 +1704,8 @@ LogServerParameters (void)
            (config.maxclients == 0) ? " (no limit)" : "");
   lprintf (1, "   max clients per IP: %u%s", config.maxclientsperip,
            (config.maxclientsperip == 0) ? " (no limit)" : "");
+  lprintf (1, "   info cache TTL: %u seconds%s", config.infocachettl,
+           (config.infocachettl == 0) ? " (disabled)" : "");
 
   lprintf (2, "   configuration file: %s", (config.configfile) ? config.configfile : "NONE");
   lprintf (2, "   client timeout: %u seconds", config.clienttimeout);

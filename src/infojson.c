@@ -1341,6 +1341,229 @@ info_add_status (yyjson_mut_doc *doc)
 }
 
 /***************************************************************************
+ * Cache of previously generated info_json() documents.
+ *
+ * INFO responses that enumerate streams (STREAMS, STATIONS, STATION_STREAMS)
+ * are the most expensive to generate: they walk the ring stream index,
+ * copy and sort every entry, run PCRE2 filters, and format several time
+ * strings per stream. Since the same request is often repeated by polling
+ * clients, a small bounded cache of complete documents avoids rebuilding
+ * an identical response within a short TTL.
+ *
+ * Entries are keyed on everything that can make two responses differ:
+ * the requested elements, the software/protocol identifier, the request's
+ * match expression, and the requesting connection's access-control and
+ * persistent match/reject strings (the same values applied inside
+ * GetStreamsStack()). Responses that include INFO_CONNECTIONS are never
+ * cached, since they enumerate live client state.
+ ***************************************************************************/
+#define INFO_CACHE_ENTRIES 8
+
+struct info_cache_entry
+{
+  char *key;        /* Composed key string, NULL when the slot is empty */
+  uint64_t keyhash; /* FNVhash64() of key, for fast rejection */
+  char *json;       /* Cached document, allocated */
+  nstime_t created; /* NSnow() when stored, for TTL expiration */
+  nstime_t used;    /* NSnow() of last hit, for LRU eviction */
+};
+
+static struct info_cache_entry info_cache[INFO_CACHE_ENTRIES];
+static pthread_mutex_t info_cache_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/***************************************************************************
+ * info_cacheable:
+ *
+ * Determine if a given element set is eligible for caching.
+ ***************************************************************************/
+static int
+info_cacheable (InfoElements elements)
+{
+  return (config.infocachettl > 0 &&
+          (elements & (INFO_STREAMS | INFO_STATIONS | INFO_STATION_STREAMS)) &&
+          !(elements & INFO_CONNECTIONS));
+}
+
+/***************************************************************************
+ * info_cache_key:
+ *
+ * Compose a cache key from everything that can affect the generated
+ * document: the requested elements, the software identifier, the request
+ * match expression, and the client's access-control and persistent
+ * match/reject strings. Each field is length-prefixed so no field value
+ * can forge a boundary with the next.
+ *
+ * Returns an allocated key string on success, with *keyhash set to its
+ * FNV-1a hash, or NULL on allocation failure.
+ ***************************************************************************/
+static char *
+info_cache_key (ClientInfo *cinfo, const char *software, InfoElements elements,
+                const char *matchexpr, uint64_t *keyhash)
+{
+  const char *allowedstr   = (cinfo->allowedstr) ? cinfo->allowedstr : "";
+  const char *forbiddenstr = (cinfo->forbiddenstr) ? cinfo->forbiddenstr : "";
+  const char *matchstr     = (cinfo->matchstr) ? cinfo->matchstr : "";
+  const char *rejectstr    = (cinfo->rejectstr) ? cinfo->rejectstr : "";
+  const char *reqmatch     = (matchexpr) ? matchexpr : "";
+  char *key;
+  int length;
+
+  length = snprintf (NULL, 0, "%u|%s|%zu:%s|%zu:%s|%zu:%s|%zu:%s|%zu:%s",
+                     (unsigned int)elements, software,
+                     strlen (reqmatch), reqmatch,
+                     strlen (allowedstr), allowedstr,
+                     strlen (forbiddenstr), forbiddenstr,
+                     strlen (matchstr), matchstr,
+                     strlen (rejectstr), rejectstr);
+
+  if (length < 0 || (key = (char *)malloc ((size_t)length + 1)) == NULL)
+    return NULL;
+
+  snprintf (key, (size_t)length + 1, "%u|%s|%zu:%s|%zu:%s|%zu:%s|%zu:%s|%zu:%s",
+            (unsigned int)elements, software,
+            strlen (reqmatch), reqmatch,
+            strlen (allowedstr), allowedstr,
+            strlen (forbiddenstr), forbiddenstr,
+            strlen (matchstr), matchstr,
+            strlen (rejectstr), rejectstr);
+
+  *keyhash = FNVhash64 (key);
+
+  return key;
+}
+
+/***************************************************************************
+ * info_cache_lookup:
+ *
+ * Search the cache for a non-expired entry matching key/keyhash.
+ *
+ * Returns an allocated copy of the cached document on a hit, or NULL if
+ * no matching, unexpired entry is found.
+ ***************************************************************************/
+static char *
+info_cache_lookup (const char *key, uint64_t keyhash)
+{
+  nstime_t nsnow = NSnow ();
+  char *hit      = NULL;
+  int idx;
+
+  pthread_mutex_lock (&info_cache_lock);
+
+  for (idx = 0; idx < INFO_CACHE_ENTRIES; idx++)
+  {
+    struct info_cache_entry *entry = &info_cache[idx];
+
+    if (entry->key == NULL || entry->keyhash != keyhash)
+      continue;
+
+    if (strcmp (entry->key, key) != 0)
+      continue;
+
+    if ((nsnow - entry->created) > (nstime_t)NSTMODULUS * config.infocachettl)
+      break;
+
+    entry->used = nsnow;
+    hit         = strdup (entry->json);
+    break;
+  }
+
+  pthread_mutex_unlock (&info_cache_lock);
+
+  return hit;
+}
+
+/***************************************************************************
+ * info_cache_store:
+ *
+ * Store a generated document in the cache under the given key, evicting
+ * the least-recently-used entry if no matching or empty slot is available.
+ *
+ * Takes ownership of the 'key' string in all cases, ownership of 'json' is
+ * NOT taken, a copy is stored.
+ ***************************************************************************/
+static void
+info_cache_store (char *key, uint64_t keyhash, const char *json)
+{
+  nstime_t nsnow = NSnow ();
+  char *jsoncopy;
+  int idx;
+  int target = -1;
+
+  if ((jsoncopy = strdup (json)) == NULL)
+  {
+    free (key);
+    return;
+  }
+
+  pthread_mutex_lock (&info_cache_lock);
+
+  /* Prefer an existing entry with the same key */
+  for (idx = 0; idx < INFO_CACHE_ENTRIES; idx++)
+  {
+    if (info_cache[idx].key != NULL && info_cache[idx].keyhash == keyhash &&
+        strcmp (info_cache[idx].key, key) == 0)
+    {
+      target = idx;
+      break;
+    }
+  }
+
+  /* Otherwise use an empty slot, or evict the least-recently-used entry */
+  if (target < 0)
+  {
+    for (idx = 0; idx < INFO_CACHE_ENTRIES; idx++)
+    {
+      if (info_cache[idx].key == NULL)
+      {
+        target = idx;
+        break;
+      }
+
+      if (target < 0 || info_cache[idx].used < info_cache[target].used)
+        target = idx;
+    }
+  }
+
+  free (info_cache[target].key);
+  free (info_cache[target].json);
+
+  info_cache[target].key     = key;
+  info_cache[target].keyhash = keyhash;
+  info_cache[target].json    = jsoncopy;
+  info_cache[target].created = nsnow;
+  info_cache[target].used    = nsnow;
+
+  pthread_mutex_unlock (&info_cache_lock);
+}
+
+/***************************************************************************
+ * InfoCacheFlush:
+ *
+ * Discard all cached info_json() documents. Called when server-wide state
+ * embedded in cached documents (e.g. configuration) may have changed.
+ ***************************************************************************/
+void
+InfoCacheFlush (void)
+{
+  int idx;
+
+  pthread_mutex_lock (&info_cache_lock);
+
+  for (idx = 0; idx < INFO_CACHE_ENTRIES; idx++)
+  {
+    free (info_cache[idx].key);
+    free (info_cache[idx].json);
+    info_cache[idx].key     = NULL;
+    info_cache[idx].json    = NULL;
+    info_cache[idx].keyhash = 0;
+    info_cache[idx].created = 0;
+    info_cache[idx].used    = 0;
+  }
+
+  pthread_mutex_unlock (&info_cache_lock);
+}
+
+/***************************************************************************
  * info_json:
  *
  * Return a JSON document with server details, conforming to the SeedLink
@@ -1357,13 +1580,30 @@ char *
 info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
            const char *matchexpr)
 {
+  char *cache_key        = NULL;
+  uint64_t cache_keyhash = 0;
   yyjson_mut_doc *doc;
 
   if (!cinfo)
     return NULL;
 
+  /* Serve from cache if this element set is cacheable and a matching,
+   * unexpired document is available. */
+  if (info_cacheable (elements) &&
+      (cache_key = info_cache_key (cinfo, software, elements, matchexpr, &cache_keyhash)) != NULL)
+  {
+    char *cached = info_cache_lookup (cache_key, cache_keyhash);
+
+    if (cached)
+    {
+      free (cache_key);
+      return cached;
+    }
+  }
+
   if ((doc = info_create_root (software)) == NULL)
   {
+    free (cache_key);
     return NULL;
   }
 
@@ -1371,6 +1611,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_id (doc) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1378,6 +1619,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_capabilities (doc) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1385,6 +1627,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_formats (doc) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1392,6 +1635,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_filters (doc) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1399,6 +1643,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_stations (cinfo, doc, 0, matchexpr) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1406,6 +1651,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_stations (cinfo, doc, 1, matchexpr) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1413,6 +1659,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_streams (cinfo, doc, matchexpr) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1420,6 +1667,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_connections (cinfo, doc, matchexpr) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1427,6 +1675,7 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
       info_add_status (doc) == NULL)
   {
     yyjson_mut_doc_free (doc);
+    free (cache_key);
     return NULL;
   }
 
@@ -1434,6 +1683,16 @@ info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
   char *json_string = yyjson_mut_write (doc, 0, NULL);
 
   yyjson_mut_doc_free (doc);
+
+  /* Store in cache for subsequent identical requests, cache_key ownership
+   * is transferred to info_cache_store() */
+  if (cache_key)
+  {
+    if (json_string)
+      info_cache_store (cache_key, cache_keyhash, json_string);
+    else
+      free (cache_key);
+  }
 
   return json_string;
 }
