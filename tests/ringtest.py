@@ -89,6 +89,60 @@ def make_ms2(net="XX", sta="TEST", loc="00", chan="BHZ", seq=1,
     return bytes(record)
 
 
+_CRC32C_TABLE = []
+for _i in range(256):
+    _c = _i
+    for _ in range(8):
+        _c = (_c >> 1) ^ 0x82F63B78 if _c & 1 else _c >> 1
+    _CRC32C_TABLE.append(_c)
+
+
+def crc32c(data, crc=0):
+    """CRC-32C (Castagnoli), as used by miniSEED 3."""
+    crc ^= 0xFFFFFFFF
+    for b in data:
+        crc = (crc >> 8) ^ _CRC32C_TABLE[(crc ^ b) & 0xFF]
+    return crc ^ 0xFFFFFFFF
+
+
+def make_ms3(net="XX", sta="TEST", loc="00", chan="BHZ", seq=1,
+             starttime=None, nsamples=100):
+    """Build a little-endian miniSEED 3 data record (40-byte fixed header
+    + FDSN Source ID + 16-bit integer payload) with a valid CRC-32C.
+    Record length is 40 + len(sid) + 2*nsamples (261 bytes for defaults).
+    """
+    if starttime is None:
+        starttime = time.time()
+
+    sid = "FDSN:%s_%s_%s_%s" % (net, sta, loc, "_".join(chan))
+    sid_bytes = sid.encode("ascii")
+
+    payload = b"".join(
+        struct.pack("<h", (seq * 100 + i) % 32000) for i in range(nsamples))
+
+    gm = time.gmtime(starttime)
+    nsec = min(int(round((starttime - int(starttime)) * 1e9)), 999_999_999)
+
+    header = struct.pack(
+        "<2sBBIHHBBBBdIIBBHI",
+        b"MS", 3,            # record indicator, format version
+        0,                   # flags
+        nsec,                # nanosecond
+        gm.tm_year, gm.tm_yday, gm.tm_hour, gm.tm_min, gm.tm_sec,
+        1,                   # data encoding: 16-bit integers
+        20.0,                # sample rate (Hz)
+        nsamples,            # number of samples
+        0,                   # CRC placeholder (computed over zeroed field)
+        1,                   # publication version
+        len(sid_bytes),      # length of identifier
+        0,                   # length of extra headers
+        len(payload))        # length of data payload
+
+    record = bytearray(header + sid_bytes + payload)
+    struct.pack_into("<I", record, 28, crc32c(record))
+    return bytes(record)
+
+
 class Server:
     """Manages a ringserver subprocess for the duration of a test.
 

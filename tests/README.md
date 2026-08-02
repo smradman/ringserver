@@ -23,7 +23,7 @@ Requirements: Python 3 (standard library only).
 ## Layout
 
 - `ringtest.py` — shared rig: server launcher, DataLink/SeedLink/HTTP/WebSocket
-  clients, and a miniSEED 2 record builder. No test cases.
+  clients, and miniSEED 2 and 3 record builders. No test cases.
 - `test_datalink.py` — DataLink protocol: handshake, WRITE/READ, positioning,
   MATCH/REJECT, streaming, INFO, error responses.
 - `test_seedlink.py` — SeedLink v3 and v4: negotiation, streaming, framing,
@@ -37,6 +37,9 @@ Requirements: Python 3 (standard library only).
   usage logs, TLS, miniSEED scanning.
 - `test_abuse.py` — misbehaving clients: slow-loris stalls, silent connections,
   junk input, stalled readers, and connection limits.
+- `test_mseed3.py` — miniSEED 3 end-to-end: DataLink round-trip, SeedLink v4
+  native delivery and `SELECT :3` v2-to-v3 conversion, INFO format reporting,
+  and file scanning.
 - `test_transports.py` — TLS/wss transport matrix: DataLink, SeedLink v3/v4,
   HTTPS, and WebSocket-over-TLS.
 - `data/` — long-lived self-signed certificate for the TLS tests.
