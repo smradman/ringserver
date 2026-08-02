@@ -304,10 +304,8 @@ class LifecycleTestCase(unittest.TestCase):
                               "scanned file within 20s; server log:\n"
                               + server.log_text())
 
-                # POSITION SET EARLIEST positions the reader's "last seen"
-                # pointer *at* the earliest packet (so a subsequent STREAM
-                # would deliver the packet *after* it); read that packet ID
-                # directly instead to verify the first scanned record.
+                # The reply's packet ID is the earliest packet in the ring;
+                # READ it directly to verify the first scanned record.
                 dl = ringtest.DataLinkConn(server.port)
                 match_header = dl.match(f"^{re.escape(expected_id)}$")
                 self.assertTrue(match_header.startswith("OK"), match_header)

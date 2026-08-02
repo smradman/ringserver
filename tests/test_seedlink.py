@@ -94,10 +94,8 @@ class TestSeedLink(unittest.TestCase):
     # -- v3 streaming -------------------------------------------------------
 
     def test_v3_stream_backlog_select_bhz(self):
-        # Resume starting at the second written BHZ record; the first
-        # record's packet ID (1) can't be used to resume since sequence
-        # numbers resume from lastpacket+1 and 1-1=0 does not exist.
-        start_pktid, expected = self.bhz_records[1][0], self.bhz_records[1:]
+        # Resuming at the first record's packet ID yields the full backlog.
+        start_pktid, expected = self.bhz_records[0][0], self.bhz_records[0:]
 
         conn = self._slconn()
         self.assertEqual(conn.cmd("STATION TEST XX"), "OK")
@@ -146,7 +144,7 @@ class TestSeedLink(unittest.TestCase):
             conn.recv_v3()
 
     def test_v3_fetch_dialup_ends_with_literal_end(self):
-        start_pktid, expected = self.bhz_records[1][0], self.bhz_records[1:]
+        start_pktid, expected = self.bhz_records[0][0], self.bhz_records[0:]
 
         conn = self._slconn()
         self.assertEqual(conn.cmd("STATION TEST XX"), "OK")
@@ -209,7 +207,7 @@ class TestSeedLink(unittest.TestCase):
     # -- v4 streaming -------------------------------------------------------
 
     def test_v4_stream_backlog_select(self):
-        start_pktid, expected = self.bhz_records[1][0], self.bhz_records[1:]
+        start_pktid, expected = self.bhz_records[0][0], self.bhz_records[0:]
 
         conn = self._slconn()
         self.assertEqual(conn.cmd("SLPROTO 4.0"), "OK")

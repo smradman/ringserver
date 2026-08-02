@@ -54,10 +54,7 @@ class IntegrityTests(unittest.TestCase):
         self.assertTrue(header.startswith("OK"), header)
         reader.stream()
 
-        # POSITION SET EARLIEST positions AT the earliest packet; streaming
-        # resumes with the packet AFTER it, so the first delivered seq is 1
-        # and the count is n - 1.
-        expected_count = n - 1
+        expected_count = n
         got = 0
         last_seq = None
         while got < expected_count:
@@ -69,7 +66,7 @@ class IntegrityTests(unittest.TestCase):
             self.assertEqual(payload, make_payload(seq),
                               f"torn/corrupt payload at seq {seq}")
             if last_seq is None:
-                self.assertEqual(seq, 1, "unexpected first delivered seq")
+                self.assertEqual(seq, 0, "unexpected first delivered seq")
             else:
                 self.assertEqual(seq, last_seq + 1, "sequence gap")
             last_seq = seq
@@ -139,12 +136,8 @@ class IntegrityTests(unittest.TestCase):
         writer = ringtest.DataLinkConn(self.server.port)
         reader = ringtest.DataLinkConn(self.server.port)
 
-        # Seed the ring with one packet before positioning: positioning
-        # EARLIEST against a genuinely empty ring only resolves to a real
-        # packet once the server notices data, which races the writer
-        # thread's first write. Seeding first makes positioning
-        # deterministic.
-        self.assertIsNotNone(writer.write(STREAMID, make_payload(-1)))
+        # POSITION SET EARLIEST on an empty ring positions the reader to
+        # receive every packet written afterward, starting with the first.
         header = reader.position_set("EARLIEST")
         self.assertTrue(header.startswith("OK"), header)
         reader.stream()
@@ -214,10 +207,12 @@ class IntegrityTests(unittest.TestCase):
         reader.close()
 
         # A fresh connection positioned at EARLIEST must see every
-        # surviving packet in the ring, each one byte-exact and in order.
+        # surviving packet in the ring, starting with the earliest one,
+        # each one byte-exact and in order.
         subset_reader = ringtest.DataLinkConn(self.server.port)
         header = subset_reader.position_set("EARLIEST")
         self.assertTrue(header.startswith("OK"), header)
+        earliest_pktid = int(header.split()[1])
         subset_reader.stream()
         subset_reader.sock.settimeout(3)
 
@@ -229,6 +224,9 @@ class IntegrityTests(unittest.TestCase):
             except socket.timeout:
                 break
             self.assertTrue(header.startswith("PACKET"), header)
+            if subset_count == 0:
+                self.assertEqual(int(header.split()[2]), earliest_pktid,
+                                  "first delivered packet was not the earliest")
             seq = int(payload[3:11])
             self.assertEqual(payload, make_payload(seq),
                               f"torn/corrupt payload at seq {seq}")

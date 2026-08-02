@@ -258,9 +258,8 @@ class WebSocketSeedLinkTestCase(unittest.TestCase):
         return ringtest.SeedLinkConn(0, sock=ws)
 
     def test_websocket_seedlink_v3_stream(self):
-        # Resume from the second record: the first packet ID cannot be a
-        # resume target (see test_seedlink.py).
-        start_pktid, expected = self.records[1][0], self.records[1:]
+        # Resuming at the first record's packet ID yields the full backlog.
+        start_pktid, expected = self.records[0][0], self.records[0:]
 
         sl = self._ws_seedlink("SeedLink3.1")
         id_line, _ = sl.hello()
@@ -276,7 +275,7 @@ class WebSocketSeedLinkTestCase(unittest.TestCase):
             self.assertEqual(frame["record"], record)
 
     def test_websocket_seedlink_v4_stream(self):
-        start_pktid, expected = self.records[1][0], self.records[1:]
+        start_pktid, expected = self.records[0][0], self.records[0:]
 
         sl = self._ws_seedlink("SeedLink4.0")
         self.assertEqual(sl.cmd("SLPROTO 4.0"), "OK")

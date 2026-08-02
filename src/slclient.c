@@ -290,24 +290,35 @@ SLHandleCmd (ClientInfo *cinfo)
             cinfo->endtime = stationid->endtime;
         }
 
-        /* Track the newest packet ID while validating their existence */
-        if (stationid->packetid <= RINGID_MAXIMUM)
-          retval = RingRead (cinfo->reader, stationid->packetid, &cinfo->packet, 0);
-        else
-          retval = 0;
+        /* Validate the resume point, tracking the newest.  The client-supplied
+         * time refers to the last packet received: the one before the first
+         * requested.  Limit packet time matching to integer seconds to match
+         * SeedLink syntax limits */
+        uint8_t validated = 0;
 
-        /* Requested packet must be valid and have a matching data start time
-         * Limit packet time matching to integer seconds to match SeedLink syntax limits */
-        if (retval == stationid->packetid &&
-            (stationid->datastart == NSTUNSET ||
-             (int64_t)(MS_NSTIME2EPOCH (stationid->datastart)) == (int64_t)(MS_NSTIME2EPOCH (cinfo->packet.datastart))))
+        if (stationid->packetid <= RINGID_MAXIMUM)
         {
-          /* Use this packet ID if it is newer than any previous newest */
-          if (newesttime == NSTUNSET || cinfo->packet.pkttime > newesttime)
+          if (stationid->packetid > 0 &&
+              RingRead (cinfo->reader, stationid->packetid - 1, &cinfo->packet, 0) == stationid->packetid - 1)
           {
-            slinfo->startid = stationid->packetid;
-            newesttime      = cinfo->packet.pkttime;
+            if (stationid->datastart == NSTUNSET ||
+                (int64_t)(MS_NSTIME2EPOCH (stationid->datastart)) == (int64_t)(MS_NSTIME2EPOCH (cinfo->packet.datastart)))
+              validated = 1;
           }
+          /* If the last received packet is gone, accept the requested packet
+           * itself when it exists and no validation time was supplied */
+          else if (stationid->datastart == NSTUNSET &&
+                   RingRead (cinfo->reader, stationid->packetid, &cinfo->packet, 0) == stationid->packetid)
+          {
+            validated = 1;
+          }
+        }
+
+        /* Use this resume point if it is newer than any previous newest */
+        if (validated && (newesttime == NSTUNSET || cinfo->packet.pkttime > newesttime))
+        {
+          slinfo->startid = stationid->packetid;
+          newesttime      = cinfo->packet.pkttime;
         }
       }
 
@@ -355,25 +366,25 @@ SLHandleCmd (ClientInfo *cinfo)
       }
     }
 
-    /* Position ring to starting packet ID if one was identified */
+    /* Position ring to deliver the starting packet ID if one was identified */
     if (slinfo->startid <= RINGID_MAXIMUM)
     {
-      retval = RingPosition (cinfo->reader, slinfo->startid, NSTUNSET);
+      retval = RingPositionBefore (cinfo->reader, slinfo->startid);
 
       if (retval == RINGID_ERROR)
       {
-        lprintf (0, "[%s] Error with RingPosition for %" PRIu64,
+        lprintf (0, "[%s] Error with RingPositionBefore for %" PRIu64,
                  cinfo->hostname, slinfo->startid);
         return -1;
       }
       else if (retval == RINGID_NONE)
       {
-        lprintf (0, "[%s] Could not find and position to packet ID: %" PRIu64,
+        lprintf (2, "[%s] Positioned before packet ID: %" PRIu64 " (not currently in the ring)",
                  cinfo->hostname, slinfo->startid);
       }
       else
       {
-        lprintf (2, "[%s] Positioned ring to packet ID: %" PRIu64,
+        lprintf (2, "[%s] Positioned ring to deliver packet ID: %" PRIu64,
                  cinfo->hostname, slinfo->startid);
       }
     }
@@ -1531,13 +1542,6 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
         }
       }
     }
-
-    /* SeedLink clients resume data flow by requesting: lastpacket + 1
-     * The ring needs to be positioned to the actual last packet ID for RingReadNext(),
-     * so set the starting packet to the last actual packet received by the client.
-     * An unfortunate side-effect: resuming from sequence 0 is not possible. */
-    if (startpacket <= RINGID_MAXIMUM && startpacket > 0)
-      startpacket = startpacket - 1;
 
     /* If configuring a specific station selection */
     if (OKGO && cinfo->state == STATE_STATION)

@@ -137,6 +137,7 @@ extern uint64_t RingRead (RingReader *reader, uint64_t reqid,
                           RingPacket *packet, char *packetdata);
 extern uint64_t RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata);
 extern uint64_t RingPosition (RingReader *reader, uint64_t pktid, nstime_t pkttime);
+extern uint64_t RingPositionBefore (RingReader *reader, uint64_t pktid);
 extern uint64_t RingAfter (RingReader *reader, nstime_t reftime, int whence);
 extern uint64_t RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit, int whence);
 extern int UpdatePattern (pcre2_code **code, pcre2_match_data **data,

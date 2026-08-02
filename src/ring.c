@@ -1241,6 +1241,7 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
   nstime_t pkttime;
   int64_t offset = -1;
   uint8_t skip;
+  uint8_t atend;
   uint32_t skipped;
   uint64_t latestrv;
 
@@ -1311,6 +1312,25 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
     {
       offset = earliestoffset;
     }
+    else if (reader->pktid <= RINGID_MAXIMUM)
+    {
+      /* Positioned before a specific packet, find it for inclusive delivery */
+      if ((offset = FindOffsetForID (reader->pktid, NULL)) < 0)
+      {
+        /* Not yet in the ring: position at the latest packet and wait */
+        if (reader->pktid > latestpkt.pktid)
+        {
+          reader->pktoffset = latestpkt.offset;
+          reader->pktid     = latestpkt.pktid;
+          reader->pkttime   = latestpkt.pkttime;
+
+          return RINGID_NONE;
+        }
+
+        /* Otherwise off the trailing edge: deliver from the earliest packet */
+        offset = earliestoffset;
+      }
+    }
     else
     {
       lprintf (0, "%s(): unsupported packet ID value: %" PRIu64, __func__, reader->pktid);
@@ -1318,10 +1338,13 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
     }
   }
 
-  /* Loop until we have a matching packet or reached the end of the buffer */
+  /* Loop until we have a matching packet or advanced past the latest.
+   * The end-of-buffer offset is not checked before reading a slot: in a
+   * wrapped ring the earliest packet occupies that same offset. */
   skip    = 1;
   skipped = 0;
-  while (skip && offset != eoboffset)
+  atend   = 0;
+  while (skip && !atend)
   {
     skip = 0;
 
@@ -1392,10 +1415,13 @@ RingReadNext (RingReader *reader, RingPacket *packet, char *packetdata)
     if (skip)
     {
       offset = NEXTOFFSET (offset, maxoffset, pktsize);
+
+      if (offset == eoboffset)
+        atend = 1;
     }
   }
 
-  if (offset == eoboffset)
+  if (atend)
   {
     return RINGID_NONE;
   }
@@ -1509,6 +1535,52 @@ RingPosition (RingReader *reader, uint64_t pktid, nstime_t pkttime)
 } /* End of RingPosition() */
 
 /***************************************************************************
+ * RingPositionBefore:
+ *
+ * Set the ring reading position to just before the specified packet
+ * ID such that a subsequent RingReadNext() will return that packet,
+ * or the first following match if it is no longer present.  The
+ * RINGID_EARLIEST and RINGID_LATEST values are supported and remain
+ * relative until the next read, including for an empty ring.
+ *
+ * Returns the ID of the packet expected to be read first if it can
+ * be determined, RINGID_NONE otherwise, and RINGID_ERROR on error.
+ ***************************************************************************/
+uint64_t
+RingPositionBefore (RingReader *reader, uint64_t pktid)
+{
+  RingPacket lookup;
+  uint64_t resolved = RINGID_NONE;
+
+  if (!reader)
+    return RINGID_ERROR;
+
+  if (pktid > RINGID_MAXIMUM && pktid != RINGID_EARLIEST && pktid != RINGID_LATEST)
+  {
+    lprintf (0, "%s(): unsupported position value: %" PRIu64, __func__, pktid);
+    return RINGID_ERROR;
+  }
+
+  /* Resolve the ID expected to be read first when possible */
+  if (param.latestoffset >= 0)
+  {
+    if (pktid == RINGID_EARLIEST)
+      resolved = RingReadPacket (param.earliestoffset, &lookup, NULL);
+    else if (pktid == RINGID_LATEST)
+      resolved = RingReadPacket (param.latestoffset, &lookup, NULL);
+    else if (FindOffsetForID (pktid, NULL) >= 0)
+      resolved = pktid;
+  }
+
+  /* Update reader position, resolved to a packet on the next read */
+  reader->pktoffset = -1;
+  reader->pktid     = pktid;
+  reader->pkttime   = NSTUNSET;
+
+  return (resolved <= RINGID_MAXIMUM) ? resolved : RINGID_NONE;
+} /* End of RingPositionBefore() */
+
+/***************************************************************************
  * RingAfter:
  *
  * Set the ring reading position to a matching packet (as defined by
@@ -1517,17 +1589,14 @@ RingPosition (RingReader *reader, uint64_t pktid, nstime_t pkttime)
  * stopping at the first matching packet with a data end time after
  * the reference time.
  *
- * The position can be set to either the first packet with a data time
- * after the reference time or the packet just before depending on the
- * whence argument.
+ * The position can be set either at or just before the matched packet
+ * depending on the whence argument.
  *
  * whence:
- * 0 = Set position to the packet just prior that found for whence == 1.
- * 1 = Set position to first packet with data end time after that specified.
- *
- * The whence == 0 option is useful if the reader will subsequently
- * call RingReadNext() and the first matched packet is desireable
- * (RingReadNext() will not return the current ID, but the next ID).
+ * 0 = Set position just before the matched packet, such that a
+ *     subsequent RingReadNext() returns the matched packet.
+ * 1 = Set position at the matched packet, such that a subsequent
+ *     RingReadNext() returns the following packet.
  *
  * If a packet is successfully found in the ring the reader.pktid will
  * be updated.  The current read position is not changed if any errors
@@ -1539,7 +1608,6 @@ RingPosition (RingReader *reader, uint64_t pktid, nstime_t pkttime)
 uint64_t
 RingAfter (RingReader *reader, nstime_t reftime, int whence)
 {
-  RingPacket *pkt0 = NULL;
   RingPacket *pkt1 = NULL;
   uint64_t pktid;
   nstime_t pkttime;
@@ -1613,9 +1681,6 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
       break;
     }
 
-    /* Shift skipped packet to the history value */
-    pkt0 = pkt1;
-
     /* Done if we reach the latest packet */
     if (offset == param.latestoffset)
     {
@@ -1632,12 +1697,6 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
     return RINGID_NONE;
   }
 
-  /* Position to packet before match if requested and not the first packet */
-  if (whence == 0 && skipped > 0)
-  {
-    pkt1 = pkt0;
-  }
-
   /* Sample pkttime, then read the remaining fields, then re-check pkttime
    * to detect the slot being overwritten while it was read */
   pkttime = LoadPktTime (pkt1);
@@ -1652,10 +1711,20 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
     return RINGID_NONE;
   }
 
-  /* Update reader position value */
-  reader->pktoffset = offset;
-  reader->pktid     = pktid;
-  reader->pkttime   = pkttime;
+  /* Update reader position, either just before the matched packet so the
+   * next read returns it, or at the matched packet */
+  if (whence == 0)
+  {
+    reader->pktoffset = -1;
+    reader->pktid     = pktid;
+    reader->pkttime   = NSTUNSET;
+  }
+  else
+  {
+    reader->pktoffset = offset;
+    reader->pktid     = pktid;
+    reader->pkttime   = pkttime;
+  }
 
   return pktid;
 } /* End of RingAfter() */
@@ -1669,17 +1738,14 @@ RingAfter (RingReader *reader, nstime_t reftime, int whence)
  * stopping at the first matching packet with a data end time after
  * the reference time or after skipping pktlimit number of packets.
  *
- * The position can be set to either the first packet with a data time
- * after the reference time or the packet just before depending on the
- * whence argument.
+ * The position can be set either at or just before the matched packet
+ * depending on the whence argument.
  *
  * whence:
- * 0 = Set position to the packet just prior that found for whence == 1.
- * 1 = Set position to first packet with data end time after that specified.
- *
- * The whence == 0 option is useful if the reader will subsequently
- * call RingReadNext() and the first matched packet is desireable
- * (RingReadNext() will not return the current ID, but the next ID).
+ * 0 = Set position just before the matched packet, such that a
+ *     subsequent RingReadNext() returns the matched packet.
+ * 1 = Set position at the matched packet, such that a subsequent
+ *     RingReadNext() returns the following packet.
  *
  * If a packet is successfully found in the ring the reader.pktid will
  * be updated.  The current read position is not changed if any errors
@@ -1786,22 +1852,6 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
     return RINGID_NONE;
   }
 
-  /* Position to packet before match if requested and not already at earliest */
-  if (whence == 0 && soffset != param.earliestoffset)
-  {
-    /* Search for the previous packet */
-    soffset = PREVOFFSET (soffset, maxoffset, pktsize);
-
-    spkt = PACKETPTR (soffset);
-
-    /* Sample pkttime before the remaining fields, re-checked below */
-    pkttime = LoadPktTime (spkt);
-    atomic_thread_fence (memory_order_acquire);
-    offset = spkt->offset;
-    pktid  = spkt->pktid;
-    pkt    = spkt;
-  }
-
   /* Sanity check that the data was not overwritten while it was read */
   atomic_thread_fence (memory_order_acquire);
   if (pkttime == NSTUNSET || pkttime != LoadPktTime (pkt))
@@ -1809,10 +1859,20 @@ RingAfterRev (RingReader *reader, nstime_t reftime, uint64_t pktlimit,
     return RINGID_NONE;
   }
 
-  /* Update reader position value */
-  reader->pktoffset = offset;
-  reader->pktid     = pktid;
-  reader->pkttime   = pkttime;
+  /* Update reader position, either just before the matched packet so the
+   * next read returns it, or at the matched packet */
+  if (whence == 0)
+  {
+    reader->pktoffset = -1;
+    reader->pktid     = pktid;
+    reader->pkttime   = NSTUNSET;
+  }
+  else
+  {
+    reader->pktoffset = offset;
+    reader->pktid     = pktid;
+    reader->pkttime   = pkttime;
+  }
 
   return pktid;
 } /* End of RingAfterRev() */

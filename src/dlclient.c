@@ -519,7 +519,11 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
           uint64_t saved_pktid    = cinfo->reader->pktid;
           nstime_t saved_pkttime  = cinfo->reader->pkttime;
 
-          uint64_t position = RingPosition (cinfo->reader, pktid, NSTUNSET);
+          /* EARLIEST means everything: position before the earliest packet
+           * so it is included in a subsequent read */
+          uint64_t position = (pktid == RINGID_EARLIEST)
+                                  ? RingPositionBefore (cinfo->reader, pktid)
+                                  : RingPosition (cinfo->reader, pktid, NSTUNSET);
 
           if (hptime != INT64_MIN && position <= RINGID_MAXIMUM &&
               (int64_t)(MS_NSTIME2EPOCH (cinfo->reader->pkttime)) != hptime / 1000000)

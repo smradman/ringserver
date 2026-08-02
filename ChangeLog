@@ -2,6 +2,8 @@
 	- Cache generated INFO stream and station responses briefly (default
 	  5 seconds, configurable) to reduce CPU usage with many streams and
 		frequently polling clients.
+	- Fix POSITION SET EARLIEST, SeedLink first-sequence resume, and time-window
+	  starts to include the earliest packet.
 	- Optimize internal stream-list Stack construction.
 	- Add a count-only stream selection path used by DataLink MATCH/REJECT.
 	- Stricter miniSEED v2/v3 record validation and hardened time-string
@@ -17,6 +19,8 @@
 	- Fix TLS handshake busy-spin by polling only the direction mbedtls requires.
 	- Fix SeedLink/DataLink streaming throttle stall when a consumed packet is skipped
 	  or zero-length.
+	- Fix RingReadNext() returning no packets when starting at the earliest
+	  packet in a wrapped ring.
 	- Fix DataLink AUTH sending a duplicate reply for an unsupported AUTH type.
 	- Reject out-of-range client-supplied packet IDs in DataLink WRITE.
 	- Repeat the shutdown request pass so clients accepted during shutdown are closed.

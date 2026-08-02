@@ -118,6 +118,23 @@ class TestDataLink(unittest.TestCase):
         header = conn.position_set("LATEST")
         self.assertTrue(header.startswith(f"OK {pid} "), header)
 
+    def test_position_set_earliest_streams_inclusive(self):
+        streamid = f"{unique('ERL')}/RAW"
+        writer = self._conn()
+        writer.write(streamid, ringtest.make_ms2())
+
+        reader = self._conn()
+        header = reader.position_set("EARLIEST")
+        self.assertTrue(header.startswith("OK"), header)
+        earliest_pid = int(header.split()[1])
+
+        reader.stream()
+        header, _ = reader.recv()
+        self.assertTrue(header.startswith("PACKET"), header)
+        self.assertEqual(int(header.split()[2]), earliest_pid,
+                          "EARLIEST should deliver the earliest packet itself")
+        reader.endstream()
+
     def test_position_after_future_positions_to_latest_and_streams(self):
         conn = self._conn()
         streamid = f"{unique('FUT')}/RAW"

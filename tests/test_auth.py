@@ -360,7 +360,7 @@ class StreamAuthGateTestCase(unittest.TestCase):
         self.assertEqual(conn.cmd("STATION XX_TEST"), "OK")
         self.assertEqual(conn.cmd("SELECT 00_B_H_Z"), "OK")
 
-        start_pktid, expected = self.records[1][0], self.records[1:]
+        start_pktid, expected = self.records[0][0], self.records
         self.assertEqual(conn.cmd(f"DATA {start_pktid}"), "OK")
         conn.sendline("END")
 
@@ -426,12 +426,6 @@ class StreamFilterTestCase(unittest.TestCase):
 
         # Interleaved backlog for two stations, written without auth.
         dl = ringtest.DataLinkConn(cls.server.port)
-
-        # POSITION SET EARLIEST positions the reader AT the earliest packet
-        # (as already read), so STREAM only delivers packets after it; seed
-        # one throwaway record first so neither ALLOW/SECRET record is the
-        # one absorbed by that positioning.
-        dl.write("FDSN:XX_DECOY_00_B_H_Z/MSEED", ringtest.make_ms2(sta="DECOY", chan="BHZ"))
 
         for i in range(2):
             allow_record = ringtest.make_ms2(sta="ALLOW", chan="BHZ", seq=i)
