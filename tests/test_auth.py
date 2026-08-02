@@ -135,15 +135,17 @@ class DataLinkAuthTestCase(unittest.TestCase):
         self.assertTrue(header.startswith("PACKET"), header)
         self.assertEqual(data, record)
 
-    def test_userpass_wrong_password_then_retry(self):
+    def test_userpass_wrong_password_disconnects(self):
         conn = self._conn()
+        start = time.monotonic()
         header, payload = self._auth_userpass(conn, "alice", "wrongpass")
+        elapsed = time.monotonic() - start
+
         self.assertTrue(header.startswith("ERROR"), header)
         self.assertIn(b"Authentication failed", payload)
-
-        # The connection stays open: retry with correct credentials.
-        header, _ = self._auth_userpass(conn, "alice", "sesame")
-        self.assertTrue(header.startswith("OK"), header)
+        # The denial reply is delayed to slow brute-forcing attempts.
+        self.assertGreaterEqual(elapsed, 1.5)
+        self.assertEqual(conn.sock.recv(16), b"")
 
     def test_write_without_auth_refused(self):
         conn = self._conn()
@@ -189,6 +191,7 @@ class DataLinkAuthTestCase(unittest.TestCase):
         header, payload = self._auth_jwt(conn, "bad.jwt.token")
         self.assertTrue(header.startswith("ERROR"), header)
         self.assertIn(b"Authentication failed", payload)
+        self.assertEqual(conn.sock.recv(16), b"")
 
     # -- argument errors --------------------------------------------------
 
@@ -237,11 +240,20 @@ class DataLinkAuthTestCase(unittest.TestCase):
         self.assertTrue(header.startswith("ERROR"), header)
         self.assertIn(b"Error performing authentication", resp)
 
+        # An auth-program failure is an operational error, not a denial:
+        # the connection stays open and can still authenticate normally.
+        header, _ = self._auth_userpass(conn, "alice", "sesame")
+        self.assertTrue(header.startswith("OK"), header)
+
     def test_auth_program_garbage_output(self):
         conn = self._conn()
         header, resp = self._auth_userpass(conn, "frank", "sesame")
         self.assertTrue(header.startswith("ERROR"), header)
         self.assertIn(b"Error performing authentication", resp)
+
+        # The connection stays open and can still authenticate normally.
+        header, _ = self._auth_userpass(conn, "alice", "sesame")
+        self.assertTrue(header.startswith("OK"), header)
 
     def test_auth_program_timeout(self):
         conn = self._conn()
@@ -253,6 +265,80 @@ class DataLinkAuthTestCase(unittest.TestCase):
         self.assertIn(b"Error performing authentication", resp)
         self.assertGreater(elapsed, 1.5)
         self.assertLess(elapsed, 8)
+
+        # The connection stays open; confirm it without invoking the
+        # auth helper again.
+        conn.send("ID ringtest.py")
+        header, _ = conn.recv()
+        self.assertTrue(header.startswith("ID"), header)
+
+    def test_program_errors_eventually_disconnect(self):
+        conn = self._conn()
+        for _ in range(20):
+            header, resp = self._auth_userpass(conn, "erin", "sesame")
+            self.assertTrue(header.startswith("ERROR"), header)
+            self.assertIn(b"Error performing authentication", resp)
+
+        # Auth-program failures still count toward the consecutive-error
+        # disconnect limit.
+        self.assertEqual(conn.sock.recv(16), b"")
+
+
+class WriteIPPreservationTestCase(unittest.TestCase):
+    """Regression: an auth-program operational failure must not wipe out
+    write permission already granted by RS_WRITE_IP."""
+
+    @classmethod
+    def setUpClass(cls):
+        server = ringtest.Server(protocols="DataLink")
+        script_path = _write_auth_helper(server.tmp_path)
+        server.env_overlay = {
+            "RS_AUTH_COMMAND": f"{sys.executable} {script_path}",
+            "RS_AUTH_TIMEOUT": "2",
+            "RS_WRITE_IP": "127.0.0.1",
+        }
+        cls.server = server.start()
+        # Deliberately triggered by the auth-program-failure test below.
+        cls.server.ignore_log_patterns += [
+            r"Error performing authentication",
+            r"Error executing auth program",
+        ]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.stop()
+
+    def _conn(self, **kwargs):
+        """Open a DataLinkConn to the shared server, closed on test end."""
+        conn = ringtest.DataLinkConn(self.server.port, **kwargs)
+        self.addCleanup(conn.close)
+        return conn
+
+    def _auth_userpass(self, conn, username, password):
+        payload = f"{username}\r{password}".encode("ascii")
+        conn.send(f"AUTH USERPASS {len(payload)}", payload)
+        return conn.recv()
+
+    def test_write_ip_survives_auth_program_error(self):
+        conn = self._conn()
+
+        streamid = f"{unique('IPWR')}/RAW"
+        record = ringtest.make_ms2()
+        pid = conn.write(streamid, record)
+        header, data = conn.read(pid)
+        self.assertTrue(header.startswith("PACKET"), header)
+        self.assertEqual(data, record)
+
+        header, resp = self._auth_userpass(conn, "erin", "sesame")
+        self.assertTrue(header.startswith("ERROR"), header)
+        self.assertIn(b"Error performing authentication", resp)
+
+        # Write permission granted by RS_WRITE_IP must still be intact.
+        record = ringtest.make_ms2()
+        pid = conn.write(streamid, record)
+        header, data = conn.read(pid)
+        self.assertTrue(header.startswith("PACKET"), header)
+        self.assertEqual(data, record)
 
 
 class StreamAuthGateTestCase(unittest.TestCase):
@@ -378,6 +464,16 @@ class StreamAuthGateTestCase(unittest.TestCase):
         conn.sock.settimeout(2)
         with self.assertRaises(socket.timeout):
             conn.recv_v4()
+
+    def test_seedlink_v4_auth_failure_disconnects(self):
+        conn = self._slconn()
+        self.assertEqual(conn.cmd("SLPROTO 4.0"), "OK")
+
+        reply = conn.cmd("AUTH USERPASS alice wrongpass")
+        self.assertTrue(reply.startswith("ERROR AUTH"), reply)
+
+        conn.sock.settimeout(3)
+        self.assertEqual(conn.sock.recv(16), b"")
 
     def test_seedlink_v3_cannot_stream(self):
         # SeedLink v3 has no AUTH command, so a fully negotiated v3 session

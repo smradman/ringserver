@@ -109,7 +109,8 @@ For example:
 
 If the user is not authenticated, the `authenticated` value will be `false` and
 the server will send a message to the client that the authentication failed and
-will disconnect the client.
+will disconnect the client.  The failure response is delayed by approximately
+two seconds to slow brute-force attempts.
 
 ## Debugging
 

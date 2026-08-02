@@ -45,6 +45,9 @@
  * hundreds of entries. */
 #define AUTH_MAX_COMPOUND_PATTERN_SIZE ((size_t)(64 * 1024))
 
+/* Delay before reporting an authentication denial, to slow brute-forcing */
+#define AUTH_DENIED_DELAY_SEC 2
+
 static int ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string);
 static int ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
                                char *output, size_t output_size,
@@ -62,7 +65,7 @@ static int ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
  * @param password: The password to authenticate.
  * @param jwtoken: The JWT token to authenticate.
  *
- * @return: 0 on success, -1 on error.
+ * @return: 0 on authentication success, 1 on authentication denial, -1 on error.
  **************************************************************************/
 int
 PerformAuth (ClientInfo *cinfo,
@@ -129,9 +132,22 @@ PerformAuth (ClientInfo *cinfo,
   }
 
   /* Apply permissions from returned JSON */
-  if (ApplyPermissionsJSON (cinfo, output) != 0)
-  {
+  status = ApplyPermissionsJSON (cinfo, output);
+
+  if (status < 0)
     return -1;
+
+  /* Authentication denied, delay the reply to slow brute-forcing */
+  if (status > 0)
+  {
+    struct timespec delay = {AUTH_DENIED_DELAY_SEC, 0};
+
+    lprintf (1, "[%s] Authentication denied for user '%s'", cinfo->hostname,
+             (username && username[0]) ? username : "(token)");
+
+    nanosleep (&delay, NULL);
+
+    return 1;
   }
 
   /* Store auth method when authentication succeeded */
@@ -189,10 +205,13 @@ PerformAuth (ClientInfo *cinfo,
  *
  * No fields are required, and if missing are assumed to be false or empty.
  *
+ * Permissions and stream patterns are staged locally and only committed to
+ * cinfo on success, so a denial or error leaves the client state untouched.
+ *
  * @param cinfo: The ::ClientInfo to apply the permissions to.
  * @param json_string: The JSON string to parse.
  *
- * @return: 0 on success, -1 on error.
+ * @return: 0 on authentication success, 1 on authentication denial, -1 on error.
  **************************************************************************/
 static int
 ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
@@ -205,6 +224,16 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
   size_t idx, max, element_size;
   size_t pattern_size;
   char *ptr;
+
+  Permissions new_permissions          = NO_PERMISSION;
+  char *new_allowedstr                 = NULL;
+  char *new_forbiddenstr               = NULL;
+  pcre2_code *new_allowed_code         = NULL;
+  pcre2_match_data *new_allowed_data   = NULL;
+  pcre2_code *new_forbidden_code       = NULL;
+  pcre2_match_data *new_forbidden_data = NULL;
+  int have_allowed                    = 0;
+  int have_forbidden                  = 0;
 
   if (!cinfo || !json_string)
   {
@@ -219,32 +248,24 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
   }
   root = yyjson_doc_get_root (json);
 
-  cinfo->permissions = NO_PERMISSION;
-
-  /* Store username from JSON response */
-  username_str = yyjson_get_str (yyjson_obj_get (root, "username"));
-  if (username_str)
+  /* Denied: nothing is modified, caller disconnects the client */
+  if (!yyjson_get_bool (yyjson_obj_get (root, "authenticated")))
   {
-    strncpy (cinfo->auth_username, username_str, sizeof (cinfo->auth_username) - 1);
-    cinfo->auth_username[sizeof (cinfo->auth_username) - 1] = '\0';
+    yyjson_doc_free (json);
+    return 1;
   }
 
-  if (yyjson_get_bool (yyjson_obj_get (root, "authenticated")))
-  {
-    cinfo->permissions |= AUTHENTICATED;
-
-    /* Successful authentication implies connect permission */
-    cinfo->permissions |= CONNECT_PERMISSION;
-  }
+  /* Successful authentication implies connect permission */
+  new_permissions = AUTHENTICATED | CONNECT_PERMISSION;
 
   if (yyjson_get_bool (yyjson_obj_get (root, "write_permission")))
   {
-    cinfo->permissions |= WRITE_PERMISSION;
+    new_permissions |= WRITE_PERMISSION;
   }
 
   if (yyjson_get_bool (yyjson_obj_get (root, "trust_permission")))
   {
-    cinfo->permissions |= TRUST_PERMISSION;
+    new_permissions |= TRUST_PERMISSION;
   }
 
   /* Build a compound regex pattern for any allowed streams returned */
@@ -252,6 +273,7 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
       yyjson_get_type (streams_array) == YYJSON_TYPE_ARR &&
       yyjson_get_len (streams_array) > 0)
   {
+    have_allowed = 1;
     pattern_size = 0;
 
     /* Calculate total size of compound pattern, for each element + 1 for '|'.
@@ -271,20 +293,17 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
       {
         lprintf (0, "[%s] allowed_streams compound pattern exceeds %zu bytes, rejecting",
                  cinfo->hostname, AUTH_MAX_COMPOUND_PATTERN_SIZE);
-        yyjson_doc_free (json);
-        return -1;
+        goto error;
       }
 
       pattern_size += element_size + 1;
     }
 
-    /* Replace allocation for compound pattern, +1 for terminator */
-    free (cinfo->allowedstr);
-    if ((cinfo->allowedstr = calloc (pattern_size + 1, 1)) == NULL)
+    /* Allocate compound pattern, +1 for terminator */
+    if ((new_allowedstr = calloc (pattern_size + 1, 1)) == NULL)
     {
       lprintf (0, "[%s] Cannot allocate memory for allowed pattern", cinfo->hostname);
-      yyjson_doc_free (json);
-      return -1;
+      goto error;
     }
 
     /* Create compound pattern */
@@ -297,27 +316,26 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
 
       if (element_size > 0)
       {
-        strncat (cinfo->allowedstr, yyjson_get_str (thread_iter), element_size);
-        strncat (cinfo->allowedstr, "|", 2);
+        strncat (new_allowedstr, yyjson_get_str (thread_iter), element_size);
+        strncat (new_allowedstr, "|", 2);
       }
     }
 
     /* Replace last '|' with terminator */
-    if ((ptr = strrchr (cinfo->allowedstr, '|')) != NULL)
+    if ((ptr = strrchr (new_allowedstr, '|')) != NULL)
       *ptr = '\0';
 
-    if (cinfo->allowedstr[0] == '\0')
+    if (new_allowedstr[0] == '\0')
     {
-      free (cinfo->allowedstr);
-      cinfo->allowedstr = NULL;
+      free (new_allowedstr);
+      new_allowedstr = NULL;
     }
 
     /* Compile regular expression */
-    if (RingAllowed (cinfo->reader, cinfo->allowedstr) < 0)
+    if (UpdatePattern (&new_allowed_code, &new_allowed_data, new_allowedstr, "ring allowed") < 0)
     {
-      lprintf (0, "[%s] Error with RingAllowed for '%s'", cinfo->hostname, cinfo->allowedstr);
-      yyjson_doc_free (json);
-      return -1;
+      lprintf (0, "[%s] Error compiling allowed streams pattern '%s'", cinfo->hostname, new_allowedstr);
+      goto error;
     }
   }
 
@@ -326,6 +344,7 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
       yyjson_get_type (streams_array) == YYJSON_TYPE_ARR &&
       yyjson_get_len (streams_array) > 0)
   {
+    have_forbidden = 1;
     pattern_size = 0;
 
     /* Calculate total size of compound pattern, for each element + 1 for '|'.
@@ -343,20 +362,17 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
       {
         lprintf (0, "[%s] forbidden_streams compound pattern exceeds %zu bytes, rejecting",
                  cinfo->hostname, AUTH_MAX_COMPOUND_PATTERN_SIZE);
-        yyjson_doc_free (json);
-        return -1;
+        goto error;
       }
 
       pattern_size += element_size + 1;
     }
 
-    /* Replace allocation for compound pattern, +1 for terminator */
-    free (cinfo->forbiddenstr);
-    if ((cinfo->forbiddenstr = calloc (pattern_size + 1, 1)) == NULL)
+    /* Allocate compound pattern, +1 for terminator */
+    if ((new_forbiddenstr = calloc (pattern_size + 1, 1)) == NULL)
     {
       lprintf (0, "[%s] Cannot allocate memory for forbidden pattern", cinfo->hostname);
-      yyjson_doc_free (json);
-      return -1;
+      goto error;
     }
 
     /* Create compound pattern */
@@ -369,33 +385,85 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
 
       if (element_size > 0)
       {
-        strncat (cinfo->forbiddenstr, yyjson_get_str (thread_iter), element_size);
-        strncat (cinfo->forbiddenstr, "|", 2);
+        strncat (new_forbiddenstr, yyjson_get_str (thread_iter), element_size);
+        strncat (new_forbiddenstr, "|", 2);
       }
     }
 
     /* Replace last '|' with terminator */
-    if ((ptr = strrchr (cinfo->forbiddenstr, '|')) != NULL)
+    if ((ptr = strrchr (new_forbiddenstr, '|')) != NULL)
       *ptr = '\0';
 
-    if (cinfo->forbiddenstr[0] == '\0')
+    if (new_forbiddenstr[0] == '\0')
     {
-      free (cinfo->forbiddenstr);
-      cinfo->forbiddenstr = NULL;
+      free (new_forbiddenstr);
+      new_forbiddenstr = NULL;
     }
 
     /* Compile regular expression */
-    if (RingForbidden (cinfo->reader, cinfo->forbiddenstr) < 0)
+    if (UpdatePattern (&new_forbidden_code, &new_forbidden_data, new_forbiddenstr, "ring forbidden") < 0)
     {
-      lprintf (0, "[%s] Error with RingForbidden for '%s'", cinfo->hostname, cinfo->forbiddenstr);
-      yyjson_doc_free (json);
-      return -1;
+      lprintf (0, "[%s] Error compiling forbidden streams pattern '%s'", cinfo->hostname, new_forbiddenstr);
+      goto error;
     }
+  }
+
+  /* Commit: everything below is infallible, so cinfo is updated atomically
+   * with respect to the staged permissions and stream patterns above */
+  cinfo->permissions = new_permissions;
+
+  /* Store username from JSON response */
+  username_str = yyjson_get_str (yyjson_obj_get (root, "username"));
+  if (username_str)
+  {
+    strncpy (cinfo->auth_username, username_str, sizeof (cinfo->auth_username) - 1);
+    cinfo->auth_username[sizeof (cinfo->auth_username) - 1] = '\0';
+  }
+
+  if (have_allowed)
+  {
+    free (cinfo->allowedstr);
+    cinfo->allowedstr = new_allowedstr;
+
+    if (cinfo->reader->allowed)
+      pcre2_code_free (cinfo->reader->allowed);
+    if (cinfo->reader->allowed_data)
+      pcre2_match_data_free (cinfo->reader->allowed_data);
+    cinfo->reader->allowed      = new_allowed_code;
+    cinfo->reader->allowed_data = new_allowed_data;
+  }
+
+  if (have_forbidden)
+  {
+    free (cinfo->forbiddenstr);
+    cinfo->forbiddenstr = new_forbiddenstr;
+
+    if (cinfo->reader->forbidden)
+      pcre2_code_free (cinfo->reader->forbidden);
+    if (cinfo->reader->forbidden_data)
+      pcre2_match_data_free (cinfo->reader->forbidden_data);
+    cinfo->reader->forbidden      = new_forbidden_code;
+    cinfo->reader->forbidden_data = new_forbidden_data;
   }
 
   yyjson_doc_free (json);
 
   return 0;
+
+error:
+  free (new_allowedstr);
+  free (new_forbiddenstr);
+  if (new_allowed_code)
+    pcre2_code_free (new_allowed_code);
+  if (new_allowed_data)
+    pcre2_match_data_free (new_allowed_data);
+  if (new_forbidden_code)
+    pcre2_code_free (new_forbidden_code);
+  if (new_forbidden_data)
+    pcre2_match_data_free (new_forbidden_data);
+  yyjson_doc_free (json);
+
+  return -1;
 }
 
 /**************************************************************************

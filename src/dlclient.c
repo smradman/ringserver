@@ -432,27 +432,30 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       }
     }
 
-    if (OKGO && PerformAuth (cinfo, username, password, jwtoken))
+    if (OKGO)
     {
-      lprintf (0, "[%s] Error performing authentication", cinfo->hostname);
+      int authrv = PerformAuth (cinfo, username, password, jwtoken);
 
-      if (SendPacket (cinfo, "ERROR", "Error performing authentication", 0, 1, 1))
+      if (authrv < 0)
+      {
+        lprintf (0, "[%s] Error performing authentication", cinfo->hostname);
+
+        if (SendPacket (cinfo, "ERROR", "Error performing authentication", 0, 1, 1))
+          return -1;
+
+        /* Count as a client error toward the consecutive-error limit */
+        return 1;
+      }
+
+      if (authrv > 0)
+      {
+        lprintf (0, "[%s] Authentication failed, not allowed to connect", cinfo->hostname);
+
+        /* Send failure reply and disconnect */
+        SendPacket (cinfo, "ERROR", "Authentication failed, not allowed to connect", 0, 1, 1);
         return -1;
+      }
 
-      OKGO = 0;
-    }
-
-    if (OKGO && !(cinfo->permissions & CONNECT_PERMISSION))
-    {
-      lprintf (0, "[%s] Authentication failed, not allowed to connect", cinfo->hostname);
-
-      if (SendPacket (cinfo, "ERROR", "Authentication failed, not allowed to connect", 0, 1, 1))
-        return -1;
-
-      OKGO = 0;
-    }
-    else if (OKGO)
-    {
       lprintf (2, "[%s] Authentication successful", cinfo->hostname);
 
       if (SendPacket (cinfo, "OK", "Authentication successful", 0, 1, 1))

@@ -33,6 +33,9 @@
 	- Add an end-to-end test suite in test/ and a 'make test' target, requires python3.
 	- Update libmseed to v3.5.3.
 	- Update mbedtls to v3.6.7.
+	- Disconnect clients on authentication denial after a short delay, apply
+	  auth permissions atomically, and count auth program errors toward the
+	  consecutive-error disconnect limit.
 
 2026.184: v4.5.4
 	- Add gzip HTTP content encoding support for status endpoints.

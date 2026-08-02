@@ -167,7 +167,7 @@ The <b>AuthCommand</b> config parameter specifies a command to be executed when 
 }
 ```
 
-The <b>authenticated</b> key must be present and set to true for the client to be allowed to connect.  Missing keys are treated as false or empty.
+The <b>authenticated</b> key must be present and set to true for the client to be allowed to connect.  Missing keys are treated as false or empty.  If authentication is denied, the server sends an error response after a brief delay and disconnects the client.
 
 ## <a id="seedlink-support">Seedlink Support</a>
 

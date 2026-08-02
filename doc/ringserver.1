@@ -276,6 +276,8 @@ formatted object on stdout with the following optional keys:
 
 The \fBauthenticated\fP key must be present and set to true for the client
 to be allowed to connect.  Missing keys are treated as false or empty.
+If authentication is denied, the server sends an error response after a
+brief delay and disconnects the client.
 
 .SH "SeedLink Support"
 
