@@ -70,10 +70,7 @@
 
 static int StreamIDCmp (const void *a, const void *b);
 static int StreamIDSelected (RingReader *reader, const char *streamid);
-static int SnapshotStreams (RBTree *tree, RBNode *node, RingStream **array,
-                            uint32_t *count, uint32_t *capacity);
-static int SnapshotStreamIDs (RBTree *tree, RBNode *node, char (**array)[MAXSTREAMID],
-                              uint32_t *count, uint32_t *capacity);
+static void SnapshotStreams (RBTree *tree, RBNode *node, RingStream *array, uint32_t *count);
 static inline int64_t FindOffsetForID (uint64_t pktid, nstime_t *pkttime);
 static RingStream *AddStreamIdx (RBTree *streamidx, RingStream *stream, Key **ppkey);
 static RingStream *GetStreamIdx (RBTree *streamidx, char *streamid);
@@ -1748,75 +1745,19 @@ StreamIDSelected (RingReader *reader, const char *streamid)
  * SnapshotStreams:
  *
  * Recursively walk the stream index in stream-key order, appending a
- * memcpy() of each RingStream entry to *array.  The array is grown
- * with realloc() as needed; *count and *capacity are updated in place.
- *
- * This must be called with param.streamlock held.
- *
- * Return 0 on success and -1 on error (allocation failure).
+ * memcpy() of each RingStream entry to array.  Caller must hold
+ * param.streamlock and size array to hold param.streamcount entries.
  ***************************************************************************/
-static int
-SnapshotStreams (RBTree *tree, RBNode *node, RingStream **array,
-                 uint32_t *count, uint32_t *capacity)
+static void
+SnapshotStreams (RBTree *tree, RBNode *node, RingStream *array, uint32_t *count)
 {
   if (node == tree->nil)
-    return 0;
+    return;
 
-  if (SnapshotStreams (tree, node->left, array, count, capacity))
-    return -1;
-
-  if (*count == *capacity)
-  {
-    /* Defensive growth; param.streamcount should pre-size exactly */
-    uint32_t new_capacity = (*capacity) ? (*capacity) * 2 : 16;
-    RingStream *grown     = (RingStream *)realloc (*array, new_capacity * sizeof (RingStream));
-    if (grown == NULL)
-      return -1;
-    *array    = grown;
-    *capacity = new_capacity;
-  }
-
-  memcpy (&(*array)[(*count)++], node->data, sizeof (RingStream));
-
-  return SnapshotStreams (tree, node->right, array, count, capacity);
+  SnapshotStreams (tree, node->left, array, count);
+  memcpy (&array[(*count)++], node->data, sizeof (RingStream));
+  SnapshotStreams (tree, node->right, array, count);
 } /* End of SnapshotStreams() */
-
-/***************************************************************************
- * SnapshotStreamIDs:
- *
- * Recursively walk the stream index in stream-key order, appending a
- * memcpy() of each stream ID to *array.  The array is grown with
- * realloc() as needed; *count and *capacity are updated in place.
- *
- * This must be called with param.streamlock held.
- *
- * Return 0 on success and -1 on error (allocation failure).
- ***************************************************************************/
-static int
-SnapshotStreamIDs (RBTree *tree, RBNode *node, char (**array)[MAXSTREAMID],
-                   uint32_t *count, uint32_t *capacity)
-{
-  if (node == tree->nil)
-    return 0;
-
-  if (SnapshotStreamIDs (tree, node->left, array, count, capacity))
-    return -1;
-
-  if (*count == *capacity)
-  {
-    /* Defensive growth; param.streamcount should pre-size exactly */
-    uint32_t new_capacity = (*capacity) ? (*capacity) * 2 : 16;
-    char (*grown)[MAXSTREAMID] = realloc (*array, (size_t)new_capacity * sizeof (**array));
-    if (grown == NULL)
-      return -1;
-    *array    = grown;
-    *capacity = new_capacity;
-  }
-
-  memcpy (&(*array)[(*count)++], ((RingStream *)node->data)->streamid, MAXSTREAMID);
-
-  return SnapshotStreamIDs (tree, node->right, array, count, capacity);
-} /* End of SnapshotStreamIDs() */
 
 /***************************************************************************
  * GetStreams:
@@ -1838,8 +1779,7 @@ GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
 {
   RingStream *snapshot    = NULL;
   uint32_t snapshot_count = 0;
-  uint32_t snapshot_capacity;
-  uint32_t kept = 0;
+  uint32_t kept           = 0;
 
   if (!streams || !count)
     return -1;
@@ -1847,30 +1787,26 @@ GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
   *streams = NULL;
   *count   = 0;
 
-  /* Snapshot the stream index under streamlock as quickly as possible:
-   * walk the tree directly into a contiguous array.  PCRE2 matching and
-   * sorting are deferred until after the lock is released so a slow
-   * regex can no longer block packet writers waiting on streamlock. */
+  /* Hold streamlock only long enough to copy the tree into a contiguous
+   * array, exactly sized using streamcount (mutated only under this same
+   * lock).  PCRE2 filtering and sorting run after the lock is released,
+   * so they never delay packet writers waiting on streamlock. */
   pthread_mutex_lock (&param.streamlock);
 
-  /* Pre-size the snapshot buffer using the (atomic) streamcount as a hint;
-   * fall back to dynamic growth if the tree turned out to hold more. */
-  snapshot_capacity = param.streamcount ? param.streamcount : 16;
-  snapshot          = (RingStream *)malloc (snapshot_capacity * sizeof (RingStream));
-  if (snapshot == NULL)
-  {
-    lprintf (0, "%s(): Error allocating snapshot", __func__);
-    pthread_mutex_unlock (&param.streamlock);
-    return -1;
-  }
+  snapshot_count = param.streamcount;
 
-  if (SnapshotStreams (param.streamidx, param.streamidx->root->left,
-                       &snapshot, &snapshot_count, &snapshot_capacity))
+  if (snapshot_count > 0)
   {
-    lprintf (0, "%s(): Error growing snapshot", __func__);
-    free (snapshot);
-    pthread_mutex_unlock (&param.streamlock);
-    return -1;
+    snapshot = (RingStream *)malloc ((size_t)snapshot_count * sizeof (RingStream));
+    if (snapshot == NULL)
+    {
+      lprintf (0, "%s(): Error allocating snapshot", __func__);
+      pthread_mutex_unlock (&param.streamlock);
+      return -1;
+    }
+
+    uint32_t filled = 0;
+    SnapshotStreams (param.streamidx, param.streamidx->root->left, snapshot, &filled);
   }
 
   pthread_mutex_unlock (&param.streamlock);
@@ -1915,22 +1851,18 @@ GetStreams (RingReader *reader, RingStream **streams, uint32_t *count)
  * CountStreams:
  *
  * Count the streams in the stream index selected by a reader's allowed,
- * forbidden, match and reject expressions, without building or sorting
- * a result array.
+ * forbidden, match and reject expressions.
  *
  * If reader is NULL, or has no filter expressions compiled, this is an
- * O(1) read of the (atomic) stream count.  Otherwise the stream IDs
- * are snapshotted and each is tested against the reader's filters.
+ * O(1) read of the (atomic) stream count.  Otherwise it counts entries
+ * returned by GetStreams().
  *
  * Return 0 on success and -1 on error.
  ***************************************************************************/
 int
 CountStreams (RingReader *reader, uint32_t *count)
 {
-  char (*snapshot)[MAXSTREAMID] = NULL;
-  uint32_t snapshot_count       = 0;
-  uint32_t snapshot_capacity;
-  uint32_t selected = 0;
+  RingStream *streams = NULL;
 
   if (!count)
     return -1;
@@ -1945,39 +1877,10 @@ CountStreams (RingReader *reader, uint32_t *count)
     return 0;
   }
 
-  /* Snapshot the stream IDs under streamlock as quickly as possible;
-   * PCRE2 filtering is deferred until after the lock is released. */
-  pthread_mutex_lock (&param.streamlock);
-
-  snapshot_capacity = param.streamcount ? param.streamcount : 16;
-  snapshot          = malloc ((size_t)snapshot_capacity * sizeof (*snapshot));
-  if (snapshot == NULL)
-  {
-    lprintf (0, "%s(): Error allocating snapshot", __func__);
-    pthread_mutex_unlock (&param.streamlock);
+  if (GetStreams (reader, &streams, count))
     return -1;
-  }
 
-  if (SnapshotStreamIDs (param.streamidx, param.streamidx->root->left,
-                        &snapshot, &snapshot_count, &snapshot_capacity))
-  {
-    lprintf (0, "%s(): Error growing snapshot", __func__);
-    free (snapshot);
-    pthread_mutex_unlock (&param.streamlock);
-    return -1;
-  }
-
-  pthread_mutex_unlock (&param.streamlock);
-
-  for (uint32_t i = 0; i < snapshot_count; i++)
-  {
-    if (StreamIDSelected (reader, snapshot[i]))
-      selected++;
-  }
-
-  free (snapshot);
-
-  *count = selected;
+  free (streams);
 
   return 0;
 } /* End of CountStreams() */
