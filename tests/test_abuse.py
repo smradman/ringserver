@@ -173,10 +173,16 @@ class SlowClientTestCase(unittest.TestCase):
         self.assertTrue(header.startswith("OK"), header)
         reader.stream()
 
-        for _ in range(1500):
-            writer.write(streamid, b"x" * 400)
-
-        time.sleep(4)
+        # Write until the stalled reader's kernel buffers fill and the
+        # server's send poll times out; buffer capacity varies widely by
+        # platform.  Each acked write also proves the server is not wedged
+        # while the stalled reader's thread is blocked in its send poll.
+        deadline = time.time() + 60
+        while "Timeout sending data" not in self.server.log_text():
+            self.assertLess(time.time(), deadline,
+                            "server never timed out sending to the stalled reader")
+            for _ in range(250):
+                writer.write(streamid, b"x" * 400)
 
         # The writer can still write and get acked: the server is not wedged.
         last_pid = writer.write(streamid, ringtest.make_ms2())
@@ -196,7 +202,9 @@ class SlowClientTestCase(unittest.TestCase):
         while time.time() < deadline:
             try:
                 chunk = reader_sock.recv(65536)
-            except (ConnectionResetError, TimeoutError, OSError):
+            except TimeoutError:
+                break  # Still connected, just no data: not a disconnect
+            except OSError:
                 stalled_disconnected = True
                 break
             if chunk == b"":
