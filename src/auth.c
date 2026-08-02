@@ -129,7 +129,7 @@ PerformAuth (ClientInfo *cinfo, const char *username, const char *password, cons
                                sizeof (error));
   if (status != 0)
   {
-    lprintf (0, "[%s] Error executing auth program: %s", cinfo->hostname, config.auth.program);
+    lprintf (0, "[%s] Error executing auth program", cinfo->hostname);
     return -1;
   }
 

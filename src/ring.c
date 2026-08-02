@@ -509,6 +509,7 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
     param.headersize = headersize;
     param.earliestoffset = -1;
     param.latestoffset = -1;
+    param.streamcount = 0;
 
     /* Clear unused header space */
     memset (param.ringbuffer + RBV3_HEADERSIZE, 0, headersize - RBV3_HEADERSIZE);
@@ -630,6 +631,7 @@ RingInitialize (char *ringfilename, char *streamfilename, int *ringfd)
   {
     RBTreeDestroy (param.streamidx);
     param.streamidx = NULL;
+    param.streamcount = 0;
     FreeRingBuffer ();
 
     /* Close the ring file and re-init the descriptor */

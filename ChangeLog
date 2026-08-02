@@ -10,6 +10,8 @@
 	  and apply allowed/forbidden stream filters to READ.
 	- Stricter miniSEED v2/v3 record validation and hardened time-string
 	  parsing due to new libmseed changes.
+	- DataLink POSITION AFTER with no matching packet now replies OK, positioned
+	  to the latest packet, instead of ERROR.
 	- Fix torn-read window in RingWrite by publishing packet header after payload.
 	- Round MaxPacketSize up so ring packet slots stay 8-byte aligned.
 	- Replace overwrite checks in RingAfter/RingAfterRev with valid pkttime re-check.

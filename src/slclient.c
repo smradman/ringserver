@@ -92,6 +92,43 @@ static ReqStationID *GetReqStationID (RBTree *tree, char *staid);
 static int StationToRegex (const char *staid, Selector *selector, char **matchregex,
                            char **rejectregex);
 static int SelectToRegex (const char *staid, const char *select, const char *label, char **regex);
+static uint8_t ValidateResumePoint (ClientInfo *cinfo, uint64_t packetid, nstime_t datastart);
+
+/***************************************************************************
+ * ValidateResumePoint:
+ *
+ * Validate a resume packet ID against the ring contents.  The
+ * client-supplied time refers to the last packet received: the one
+ * before the first requested.  Limit packet time matching to integer
+ * seconds to match SeedLink syntax limits.  If the last received
+ * packet is gone, accept the requested packet itself when it exists
+ * and no validation time was supplied.
+ *
+ * The reader position is modified by the reads and cinfo->packet
+ * contains the packet read on success.
+ *
+ * Returns 1 when the resume point is validated, 0 otherwise.
+ ***************************************************************************/
+static uint8_t
+ValidateResumePoint (ClientInfo *cinfo, uint64_t packetid, nstime_t datastart)
+{
+  if (packetid > RINGID_MAXIMUM)
+    return 0;
+
+  if (packetid > 0 && RingRead (cinfo->reader, packetid - 1, &cinfo->packet, 0) == packetid - 1)
+  {
+    if (datastart == NSTUNSET || (int64_t)(MS_NSTIME2EPOCH (datastart)) ==
+                                     (int64_t)(MS_NSTIME2EPOCH (cinfo->packet.datastart)))
+      return 1;
+  }
+  else if (datastart == NSTUNSET &&
+           RingRead (cinfo->reader, packetid, &cinfo->packet, 0) == packetid)
+  {
+    return 1;
+  }
+
+  return 0;
+} /* End of ValidateResumePoint() */
 
 /***********************************************************************
  * SLHandleCmd:
@@ -285,31 +322,8 @@ SLHandleCmd (ClientInfo *cinfo)
             cinfo->endtime = stationid->endtime;
         }
 
-        /* Validate the resume point, tracking the newest.  The client-supplied
-         * time refers to the last packet received: the one before the first
-         * requested.  Limit packet time matching to integer seconds to match
-         * SeedLink syntax limits */
-        uint8_t validated = 0;
-
-        if (stationid->packetid <= RINGID_MAXIMUM)
-        {
-          if (stationid->packetid > 0 && RingRead (cinfo->reader, stationid->packetid - 1,
-                                                   &cinfo->packet, 0) == stationid->packetid - 1)
-          {
-            if (stationid->datastart == NSTUNSET ||
-                (int64_t)(MS_NSTIME2EPOCH (stationid->datastart)) ==
-                    (int64_t)(MS_NSTIME2EPOCH (cinfo->packet.datastart)))
-              validated = 1;
-          }
-          /* If the last received packet is gone, accept the requested packet
-           * itself when it exists and no validation time was supplied */
-          else if (stationid->datastart == NSTUNSET &&
-                   RingRead (cinfo->reader, stationid->packetid, &cinfo->packet, 0) ==
-                       stationid->packetid)
-          {
-            validated = 1;
-          }
-        }
+        /* Validate the resume point, tracking the newest */
+        uint8_t validated = ValidateResumePoint (cinfo, stationid->packetid, stationid->datastart);
 
         /* Use this resume point if it is newer than any previous newest */
         if (validated && (newesttime == NSTUNSET || cinfo->packet.pkttime > newesttime))
@@ -363,6 +377,28 @@ SLHandleCmd (ClientInfo *cinfo)
                    "cannot compile rejections (combined rejection too large?)");
         return -1;
       }
+    }
+
+    /* Validate an all-station resume point before positioning; per-station
+     * requests are validated during station setup */
+    if (slinfo->stationcount == 0 && slinfo->startid <= RINGID_MAXIMUM)
+    {
+      /* Save reader position values to restore after validation reads */
+      int64_t saved_pktoffset = cinfo->reader->pktoffset;
+      uint64_t saved_pktid = cinfo->reader->pktid;
+      nstime_t saved_pkttime = cinfo->reader->pkttime;
+
+      if (!ValidateResumePoint (cinfo, slinfo->startid, cinfo->starttime))
+      {
+        lprintf (2, "[%s] Resume packet ID %" PRIu64 " not validated, positioning to next packet",
+                 cinfo->hostname, slinfo->startid);
+        slinfo->startid = RINGID_NONE;
+      }
+
+      /* Restore reader position */
+      cinfo->reader->pktoffset = saved_pktoffset;
+      cinfo->reader->pktid = saved_pktid;
+      cinfo->reader->pkttime = saved_pkttime;
     }
 
     /* Position ring to deliver the starting packet ID if one was identified */

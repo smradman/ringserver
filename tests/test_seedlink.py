@@ -263,5 +263,103 @@ class TestSeedLink(unittest.TestCase):
         self.assertEqual(stream_ids, {"00_B_H_Z", "00_B_H_N"})
 
 
+class TestSeedLinkAllStationResume(unittest.TestCase):
+    """SeedLink v3 all-station (classic uni-station) resume semantics.
+
+    All-station mode is entered by skipping STATION entirely: HELLO (if
+    sent at all) followed directly by `DATA <seq hex>`.  Unlike the
+    per-station STATION/SELECT/DATA/END negotiation, an all-station DATA
+    command triggers ring configuration and streaming immediately, with
+    no reply and no END required.
+
+    Each test gets its own server since the resume-to-live-edge case
+    writes a new record mid-test and needs a known, isolated ring state.
+    """
+
+    def setUp(self):
+        self.server = ringtest.Server(protocols="DataLink SeedLink").start()
+        self.addCleanup(self.server.stop)
+
+        dl = ringtest.DataLinkConn(self.server.port)
+        self.bhz_records = []
+        for i in range(5):
+            record = ringtest.make_ms2(chan="BHZ", seq=i)
+            pktid = dl.write(BHZ_STREAMID, record)
+            self.bhz_records.append((pktid, record))
+        dl.close()
+
+    def _slconn(self, **kwargs):
+        """Open a SeedLinkConn to this test's server, closed on test end."""
+        conn = ringtest.SeedLinkConn(self.server.port, **kwargs)
+        self.addCleanup(conn.close)
+        return conn
+
+    def test_all_station_data_resumes_mid_backlog_inclusive(self):
+        # All-station DATA <seq> starts streaming immediately: no reply,
+        # no END, resuming AT the requested sequence (inclusive).
+        start_pktid, expected = self.bhz_records[2][0], self.bhz_records[2:]
+
+        conn = self._slconn()
+        conn.sendline(f"DATA {start_pktid:06x}")
+
+        prev_seq = None
+        for pktid, record in expected:
+            frame = conn.recv_v3()
+            self.assertEqual(frame["kind"], "data")
+            self.assertEqual(frame["seq"], pktid & 0xFFFFFF)
+            self.assertEqual(frame["record"], record)
+            if prev_seq is not None:
+                self.assertGreater(frame["seq"], prev_seq)
+            prev_seq = frame["seq"]
+
+        # Nothing else follows.
+        conn.sock.settimeout(2)
+        with self.assertRaises(socket.timeout):
+            conn.recv_v3()
+
+    def test_all_station_data_resumes_at_earliest_inclusive(self):
+        # Resuming at the earliest packet ID must still deliver the whole
+        # backlog starting at that record, inclusive.
+        start_pktid, expected = self.bhz_records[0][0], self.bhz_records[0:]
+
+        conn = self._slconn()
+        conn.sendline(f"DATA {start_pktid:06x}")
+
+        for pktid, record in expected:
+            frame = conn.recv_v3()
+            self.assertEqual(frame["kind"], "data")
+            self.assertEqual(frame["seq"], pktid & 0xFFFFFF)
+            self.assertEqual(frame["record"], record)
+
+        conn.sock.settimeout(2)
+        with self.assertRaises(socket.timeout):
+            conn.recv_v3()
+
+    def test_all_station_data_stale_sequence_resumes_at_live_edge(self):
+        # A resume sequence that is not in the ring and is not the next
+        # expected packet must not replay the backlog: it resumes at the
+        # live edge instead.  Packet IDs start at 1, so 0 is guaranteed
+        # to be below the earliest packet ever written.
+        conn = self._slconn()
+        conn.sendline("DATA 000000")
+
+        # No backlog is delivered for the unvalidated resume point.
+        conn.sock.settimeout(2)
+        with self.assertRaises(socket.timeout):
+            conn.recv_v3()
+
+        # A record written after connecting is delivered once live.
+        dl = ringtest.DataLinkConn(self.server.port)
+        self.addCleanup(dl.close)
+        newrecord = ringtest.make_ms2(chan="BHZ", seq=99)
+        newpktid = dl.write(BHZ_STREAMID, newrecord)
+
+        conn.sock.settimeout(10)
+        frame = conn.recv_v3()
+        self.assertEqual(frame["kind"], "data")
+        self.assertEqual(frame["seq"], newpktid & 0xFFFFFF)
+        self.assertEqual(frame["record"], newrecord)
+
+
 if __name__ == "__main__":
     unittest.main()

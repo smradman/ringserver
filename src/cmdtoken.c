@@ -96,6 +96,10 @@ cmdtoken_parse (CmdToken *cmd, const char *line)
       *p++ = '\0';
   }
 
+  /* NULL sentinel so out-of-range argv access fails deterministically */
+  if (cmd->argc < CMDTOKEN_MAX_TOKENS)
+    cmd->argv[cmd->argc] = NULL;
+
   return 0;
 } /* End of cmdtoken_parse() */
 
