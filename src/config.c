@@ -233,7 +233,8 @@ static const char *reference_config_file_parts[] = {
     "# and detect dead connections more quickly.  Set TCPKeepAliveIdle to 0 to disable.\n"
     "# TCPKeepAliveIdle: Seconds of idle time before sending probes.\n"
     "# TCPKeepAliveInterval: Seconds between probes (ignored where unsupported)\n"
-    "# TCPKeepAliveCount: Number of failed probes before disconnecting (ignored where unsupported)\n"
+    "# TCPKeepAliveCount: Number of failed probes before disconnecting (ignored where "
+    "unsupported)\n"
     "# These are dynamic parameters, but only apply to new connections.\n"
     "# Equivalent environment variables: RS_TCP_KEEPALIVE_IDLE,\n"
     "#   RS_TCP_KEEPALIVE_INTERVAL, RS_TCP_KEEPALIVE_COUNT\n"
@@ -505,7 +506,8 @@ static const char *reference_config_file_parts[] = {
     "# Equivalent environment variable: RS_MSEED_SCAN\n"
     "# See the ringserver(1) man page for more details.\n"
     "\n"
-    "#MSeedScan <directory> [StateFile=scan.state] [Match=pattern] [Reject=pattern] [InitCurrentState=y]\n"
+    "#MSeedScan <directory> [StateFile=scan.state] [Match=pattern] [Reject=pattern] "
+    "[InitCurrentState=y]\n"
     "\n",
     NULL};
 
@@ -519,76 +521,74 @@ Usage (int level)
 {
   fprintf (stderr, "%s version %s\n\n", PACKAGE, VERSION);
   fprintf (stderr, "Usage: %s [options] [configfile]\n\n", PACKAGE);
-  fprintf (stderr, " ## Options ##\n"
-                   " -V             Print program version and exit\n"
-                   " -h             Print this usage message\n"
-                   " -H             Print an extended usage message\n"
-                   " -C             Print configuration file options and descriptions\n"
-                   " -v             Be more verbose, multiple flags can be used\n"
-                   " -I serverID    Server ID (default 'Ring Server')\n"
-                   " -m maxclnt     Maximum number of concurrent clients (currently %d)\n"
-                   " -M maxperIP    Maximum number of concurrent clients per address (currently %d)\n"
-                   " -Rd ringdir    Directory for ring buffer files, required\n"
-                   " -Rs bytes      Ring packet buffer file size in bytes (default 1 Gibibyte)\n"
-                   " -Rp pktsize    Maximum ring packet data size in bytes (currently %" PRIu32 ")\n"
-                   " -NOMM          Do not memory map the packet buffer, use memory instead\n"
-                   " -L port        Listen for connections on port, all protocols (default off)\n"
-                   " -U logdir      Directory to write usage logs (default is no logs)\n"
-                   " -Ui hours      Usage log writing interval (default 24 hours)\n"
-                   " -Up prefix     Prefix to add to usage log files (default is none)\n"
-                   " -Uj            Enable JSON Lines transfer log format (replaces text format)\n"
-                   " -STDERR        Send all console output to stderr instead of stdout\n"
-                   "\n",
-           config.maxclients,
-           config.maxclientsperip,
+  fprintf (stderr,
+           " ## Options ##\n"
+           " -V             Print program version and exit\n"
+           " -h             Print this usage message\n"
+           " -H             Print an extended usage message\n"
+           " -C             Print configuration file options and descriptions\n"
+           " -v             Be more verbose, multiple flags can be used\n"
+           " -I serverID    Server ID (default 'Ring Server')\n"
+           " -m maxclnt     Maximum number of concurrent clients (currently %d)\n"
+           " -M maxperIP    Maximum number of concurrent clients per address (currently %d)\n"
+           " -Rd ringdir    Directory for ring buffer files, required\n"
+           " -Rs bytes      Ring packet buffer file size in bytes (default 1 Gibibyte)\n"
+           " -Rp pktsize    Maximum ring packet data size in bytes (currently %" PRIu32 ")\n"
+           " -NOMM          Do not memory map the packet buffer, use memory instead\n"
+           " -L port        Listen for connections on port, all protocols (default off)\n"
+           " -U logdir      Directory to write usage logs (default is no logs)\n"
+           " -Ui hours      Usage log writing interval (default 24 hours)\n"
+           " -Up prefix     Prefix to add to usage log files (default is none)\n"
+           " -Uj            Enable JSON Lines transfer log format (replaces text format)\n"
+           " -STDERR        Send all console output to stderr instead of stdout\n"
+           "\n",
+           config.maxclients, config.maxclientsperip,
            config.pktsize - (uint32_t)sizeof (RingPacket));
 
   if (level >= 1)
   {
-    fprintf (stderr,
-             " -MSWRITE format  Write all received miniSEED to an archive\n"
-             " -MSSCAN dir      Scan directory for files containing miniSEED\n"
-             " -VOLATILE        Create volatile ring, contents not saved to files\n"
-             "\n");
+    fprintf (stderr, " -MSWRITE format  Write all received miniSEED to an archive\n"
+                     " -MSSCAN dir      Scan directory for files containing miniSEED\n"
+                     " -VOLATILE        Create volatile ring, contents not saved to files\n"
+                     "\n");
 
-    fprintf (stderr,
-             "The 'format' argument is expanded for each record using the\n"
-             "flags below.  Some preset archive layouts are available:\n"
-             "\n"
-             "BUD   : %%n/%%s/%%s.%%n.%%l.%%c.%%Y.%%j  (BUD layout)\n"
-             "CHAN  : %%n.%%s.%%l.%%c  (channel)\n"
-             "QCHAN : %%n.%%s.%%l.%%c.%%q  (quality-channel-day)\n"
-             "CDAY  : %%n.%%s.%%l.%%c.%%Y:%%j:#H:#M:#S  (channel-day)\n"
-             "SDAY  : %%n.%%s.%%Y:%%j  (station-day)\n"
-             "HSDAY : %%h/%%n.%%s.%%Y:%%j  (host-station-day)\n"
-             "\n"
-             "Archive definition flags\n"
-             "  n : Network code, white space removed\n"
-             "  s : Station code, white space removed\n"
-             "  l : Location code, white space removed\n"
-             "  c : Channel code, white space removed\n"
-             "  q : Record quality indicator (D, R, Q, M), single character\n"
-             "  Y : Year, 4 digits\n"
-             "  y : Year, 2 digits zero padded\n"
-             "  j : Day of year, 3 digits zero padded\n"
-             "  H : Hour, 2 digits zero padded\n"
-             "  M : Minute, 2 digits zero padded\n"
-             "  S : Second, 2 digits zero padded\n"
-             "  F : Fractional seconds, 4 digits zero padded\n"
-             "  D : Current year-day time stamp of the form YYYYDDD\n"
-             "  L : Data record length in bytes\n"
-             "  r : Sample rate (Hz) as a rounded integer\n"
-             "  R : Sample rate (Hz) as a float with 6 digit precision\n"
-             "  h : Host name of client submitting data \n"
-             "  %% : The percent (%%) character\n"
-             "  # : The number (#) character\n"
-             "\n"
-             "The flags are prefaced with either the %% or # modifier.  The %% modifier\n"
-             "indicates a defining flag while the # indicates a non-defining flag.\n"
-             "All records with the same set of defining flags will be written to the\n"
-             "same file. Non-defining flags will be expanded using the values in the\n"
-             "first record for the resulting file name.\n"
-             "\n");
+    fprintf (stderr, "The 'format' argument is expanded for each record using the\n"
+                     "flags below.  Some preset archive layouts are available:\n"
+                     "\n"
+                     "BUD   : %%n/%%s/%%s.%%n.%%l.%%c.%%Y.%%j  (BUD layout)\n"
+                     "CHAN  : %%n.%%s.%%l.%%c  (channel)\n"
+                     "QCHAN : %%n.%%s.%%l.%%c.%%q  (quality-channel-day)\n"
+                     "CDAY  : %%n.%%s.%%l.%%c.%%Y:%%j:#H:#M:#S  (channel-day)\n"
+                     "SDAY  : %%n.%%s.%%Y:%%j  (station-day)\n"
+                     "HSDAY : %%h/%%n.%%s.%%Y:%%j  (host-station-day)\n"
+                     "\n"
+                     "Archive definition flags\n"
+                     "  n : Network code, white space removed\n"
+                     "  s : Station code, white space removed\n"
+                     "  l : Location code, white space removed\n"
+                     "  c : Channel code, white space removed\n"
+                     "  q : Record quality indicator (D, R, Q, M), single character\n"
+                     "  Y : Year, 4 digits\n"
+                     "  y : Year, 2 digits zero padded\n"
+                     "  j : Day of year, 3 digits zero padded\n"
+                     "  H : Hour, 2 digits zero padded\n"
+                     "  M : Minute, 2 digits zero padded\n"
+                     "  S : Second, 2 digits zero padded\n"
+                     "  F : Fractional seconds, 4 digits zero padded\n"
+                     "  D : Current year-day time stamp of the form YYYYDDD\n"
+                     "  L : Data record length in bytes\n"
+                     "  r : Sample rate (Hz) as a rounded integer\n"
+                     "  R : Sample rate (Hz) as a float with 6 digit precision\n"
+                     "  h : Host name of client submitting data \n"
+                     "  %% : The percent (%%) character\n"
+                     "  # : The number (#) character\n"
+                     "\n"
+                     "The flags are prefaced with either the %% or # modifier.  The %% modifier\n"
+                     "indicates a defining flag while the # indicates a non-defining flag.\n"
+                     "All records with the same set of defining flags will be written to the\n"
+                     "same file. Non-defining flags will be expanded using the values in the\n"
+                     "first record for the resulting file name.\n"
+                     "\n");
   }
 
   exit (1);
@@ -614,14 +614,12 @@ ProcessParam (int argcount, char **argvec)
   /* Process all command line arguments */
   for (optind = 1; optind < argcount; optind++)
   {
-    if (strcmp (argvec[optind], "-V") == 0 ||
-        strcmp (argvec[optind], "--version") == 0)
+    if (strcmp (argvec[optind], "-V") == 0 || strcmp (argvec[optind], "--version") == 0)
     {
       fprintf (stderr, "%s version: %s\n", PACKAGE, VERSION);
       exit (0);
     }
-    else if (strcmp (argvec[optind], "-h") == 0 ||
-             strcmp (argvec[optind], "--help") == 0)
+    else if (strcmp (argvec[optind], "-h") == 0 || strcmp (argvec[optind], "--help") == 0)
     {
       Usage (0);
     }
@@ -647,25 +645,29 @@ ProcessParam (int argcount, char **argvec)
     }
     else if (strcmp (argvec[optind], "-I") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "ServerID \"%s\"", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "ServerID \"%s\"",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-m") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "MaxClients %s", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "MaxClients %s",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-M") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "MaxClientsPerIP %s", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "MaxClientsPerIP %s",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-Rd") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "RingDirectory \"%s\"", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "RingDirectory \"%s\"",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
@@ -677,7 +679,8 @@ ProcessParam (int argcount, char **argvec)
     }
     else if (strcmp (argvec[optind], "-Rp") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "MaxPacketSize %s", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "MaxPacketSize %s",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
@@ -689,19 +692,22 @@ ProcessParam (int argcount, char **argvec)
     }
     else if (strcmp (argvec[optind], "-L") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "ListenPort %s", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "ListenPort %s",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-DL") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "DataLinkPort %s", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "DataLinkPort %s",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-SL") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "SeedLinkPort %s", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "SeedLinkPort %s",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
@@ -713,19 +719,22 @@ ProcessParam (int argcount, char **argvec)
     }
     else if (strcmp (argvec[optind], "-U") == 0 || strcmp (argvec[optind], "-T") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "UsageLogDirectory \"%s\"", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "UsageLogDirectory \"%s\"",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-Ui") == 0 || strcmp (argvec[optind], "-Ti") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "UsageLogInterval %s", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "UsageLogInterval %s",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-Up") == 0 || strcmp (argvec[optind], "-Tp") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "UsageLogPrefix \"%s\"", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "UsageLogPrefix \"%s\"",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
@@ -745,13 +754,15 @@ ProcessParam (int argcount, char **argvec)
     }
     else if (strcmp (argvec[optind], "-MSWRITE") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "MSeedWrite \"%s\"", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "MSeedWrite \"%s\"",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
     else if (strcmp (argvec[optind], "-MSSCAN") == 0)
     {
-      snprintf (paramstr, sizeof (paramstr), "MSeedScan \"%s\"", GetOptVal (argcount, argvec, optind++));
+      snprintf (paramstr, sizeof (paramstr), "MSeedScan \"%s\"",
+                GetOptVal (argcount, argvec, optind++));
       if (SetParameter (paramstr, 0) <= 0)
         exit (1);
     }
@@ -891,7 +902,7 @@ ReadEnvironmentVariables (void)
 {
   const char *envvar;
   char paramstr[512] = {0};
-  int count          = 0;
+  int count = 0;
 
   if ((envvar = getenv ("RS_CONFIG_FILE")) && strcasecmp (envvar, "DISABLE"))
   {
@@ -1390,7 +1401,8 @@ ReadEnvironmentVariables (void)
       return -1;
     count++;
 
-    lprintf (1, "RS_LIMIT_IP environment variable is deprecated, use RS_ALLOWED_STREAMS_IP instead");
+    lprintf (1,
+             "RS_LIMIT_IP environment variable is deprecated, use RS_ALLOWED_STREAMS_IP instead");
   }
 
   if ((envvar = getenv ("RS_ALLOWED_STREAMS_IP")) && strcasecmp (envvar, "DISABLE"))
@@ -1616,39 +1628,39 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   int rv;
 
   /* Saved copies of dynamic fields, used to restore on parse failure */
-  IPNet *saved_writeips            = NULL;
-  IPNet *saved_trustedips          = NULL;
-  IPNet *saved_allowedips          = NULL;
-  IPNet *saved_forbiddenips        = NULL;
-  IPNet *saved_acceptips           = NULL;
-  IPNet *saved_denyips             = NULL;
-  char *saved_webroot              = NULL;
-  char *saved_httpheaders          = NULL;
+  IPNet *saved_writeips = NULL;
+  IPNet *saved_trustedips = NULL;
+  IPNet *saved_allowedips = NULL;
+  IPNet *saved_forbiddenips = NULL;
+  IPNet *saved_acceptips = NULL;
+  IPNet *saved_denyips = NULL;
+  char *saved_webroot = NULL;
+  char *saved_httpheaders = NULL;
   UsageLogMode saved_usagelog_mode = USAGELOG_NONE;
-  char *saved_usagelog_basedir     = NULL;
-  char *saved_usagelog_prefix      = NULL;
-  char *saved_serverid             = NULL;
-  char *saved_tlscertfile          = NULL;
-  char *saved_tlskeyfile           = NULL;
-  char *saved_auth_program         = NULL;
-  char **saved_auth_argv           = NULL;
+  char *saved_usagelog_basedir = NULL;
+  char *saved_usagelog_prefix = NULL;
+  char *saved_serverid = NULL;
+  char *saved_tlscertfile = NULL;
+  char *saved_tlskeyfile = NULL;
+  char *saved_auth_program = NULL;
+  char **saved_auth_argv = NULL;
 
   /* Saved copies of dynamic scalar fields, used to restore on parse failure */
-  int saved_verbose                    = 0;
-  uint32_t saved_maxclientsperip       = 0;
-  uint32_t saved_infocachettl          = 0;
-  uint32_t saved_maxclients            = 0;
-  uint32_t saved_clienttimeout         = 0;
-  uint32_t saved_netiotimeout          = 0;
-  uint32_t saved_tcpkeepalive_idle     = 0;
+  int saved_verbose = 0;
+  uint32_t saved_maxclientsperip = 0;
+  uint32_t saved_infocachettl = 0;
+  uint32_t saved_maxclients = 0;
+  uint32_t saved_clienttimeout = 0;
+  uint32_t saved_netiotimeout = 0;
+  uint32_t saved_tcpkeepalive_idle = 0;
   uint32_t saved_tcpkeepalive_interval = 0;
-  uint32_t saved_tcpkeepalive_count    = 0;
-  float saved_timewinlimit             = 0.0;
-  uint8_t saved_resolvehosts           = 0;
-  int saved_tlsverifyclientcert        = 0;
-  uint8_t saved_auth_required          = 0;
-  uint32_t saved_auth_timeout_sec      = 0;
-  int saved_usagelog_interval          = 0;
+  uint32_t saved_tcpkeepalive_count = 0;
+  float saved_timewinlimit = 0.0;
+  uint8_t saved_resolvehosts = 0;
+  int saved_tlsverifyclientcert = 0;
+  uint8_t saved_auth_required = 0;
+  uint32_t saved_auth_timeout_sec = 0;
+  int saved_usagelog_interval = 0;
 
   if (!configfile)
     return -1;
@@ -1656,8 +1668,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   /* Open config file */
   if ((cfile = fopen (configfile, "r")) == NULL)
   {
-    lprintf (0, "Error opening config file %s: %s",
-             configfile, strerror (errno));
+    lprintf (0, "Error opening config file %s: %s", configfile, strerror (errno));
     return -1;
   }
 
@@ -1668,8 +1679,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
 
     if (fstat (fileno (cfile), &cfstat))
     {
-      lprintf (0, "Error stating config file %s: %s",
-               configfile, strerror (errno));
+      lprintf (0, "Error stating config file %s: %s", configfile, strerror (errno));
       fclose (cfile);
       return -1;
     }
@@ -1681,46 +1691,46 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   param.configfilemtime = mtime;
 
   /* Save existing dynamic state so it can be restored on parse failure */
-  saved_writeips         = config.writeips;
-  saved_trustedips       = config.trustedips;
-  saved_allowedips       = config.allowedips;
-  saved_forbiddenips     = config.forbiddenips;
-  saved_acceptips        = config.acceptips;
-  saved_denyips          = config.denyips;
-  saved_webroot          = config.webroot;
-  saved_httpheaders      = config.httpheaders;
-  saved_usagelog_mode    = config.usagelog.mode;
+  saved_writeips = config.writeips;
+  saved_trustedips = config.trustedips;
+  saved_allowedips = config.allowedips;
+  saved_forbiddenips = config.forbiddenips;
+  saved_acceptips = config.acceptips;
+  saved_denyips = config.denyips;
+  saved_webroot = config.webroot;
+  saved_httpheaders = config.httpheaders;
+  saved_usagelog_mode = config.usagelog.mode;
   saved_usagelog_basedir = config.usagelog.basedir;
-  saved_usagelog_prefix  = config.usagelog.prefix;
-  saved_serverid         = config.serverid;
-  saved_tlscertfile      = config.tlscertfile;
-  saved_tlskeyfile       = config.tlskeyfile;
-  saved_auth_program     = config.auth.program;
-  saved_auth_argv        = config.auth.argv;
+  saved_usagelog_prefix = config.usagelog.prefix;
+  saved_serverid = config.serverid;
+  saved_tlscertfile = config.tlscertfile;
+  saved_tlskeyfile = config.tlskeyfile;
+  saved_auth_program = config.auth.program;
+  saved_auth_argv = config.auth.argv;
 
-  saved_verbose               = config.verbose;
-  saved_maxclientsperip       = config.maxclientsperip;
-  saved_infocachettl          = config.infocachettl;
-  saved_maxclients            = config.maxclients;
-  saved_clienttimeout         = config.clienttimeout;
-  saved_netiotimeout          = config.netiotimeout;
-  saved_tcpkeepalive_idle     = config.tcpkeepalive_idle;
+  saved_verbose = config.verbose;
+  saved_maxclientsperip = config.maxclientsperip;
+  saved_infocachettl = config.infocachettl;
+  saved_maxclients = config.maxclients;
+  saved_clienttimeout = config.clienttimeout;
+  saved_netiotimeout = config.netiotimeout;
+  saved_tcpkeepalive_idle = config.tcpkeepalive_idle;
   saved_tcpkeepalive_interval = config.tcpkeepalive_interval;
-  saved_tcpkeepalive_count    = config.tcpkeepalive_count;
-  saved_timewinlimit          = config.timewinlimit;
-  saved_resolvehosts          = config.resolvehosts;
-  saved_tlsverifyclientcert   = config.tlsverifyclientcert;
-  saved_auth_required         = config.auth.required;
-  saved_auth_timeout_sec      = config.auth.timeout_sec;
-  saved_usagelog_interval     = config.usagelog.interval;
+  saved_tcpkeepalive_count = config.tcpkeepalive_count;
+  saved_timewinlimit = config.timewinlimit;
+  saved_resolvehosts = config.resolvehosts;
+  saved_tlsverifyclientcert = config.tlsverifyclientcert;
+  saved_auth_required = config.auth.required;
+  saved_auth_timeout_sec = config.auth.timeout_sec;
+  saved_usagelog_interval = config.usagelog.interval;
 
   /* Clear the write, trusted, allowed, forbidden, match and reject IPs lists */
-  config.writeips     = NULL;
-  config.trustedips   = NULL;
-  config.allowedips   = NULL;
+  config.writeips = NULL;
+  config.trustedips = NULL;
+  config.allowedips = NULL;
   config.forbiddenips = NULL;
-  config.acceptips    = NULL;
-  config.denyips      = NULL;
+  config.acceptips = NULL;
+  config.denyips = NULL;
 
   /* Clear webroot specification */
   config.webroot = NULL;
@@ -1729,17 +1739,17 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   config.httpheaders = NULL;
 
   /* Clear existing usage log parameters */
-  config.usagelog.mode    = USAGELOG_NONE;
+  config.usagelog.mode = USAGELOG_NONE;
   config.usagelog.basedir = NULL;
-  config.usagelog.prefix  = NULL;
+  config.usagelog.prefix = NULL;
 
   /* Clear dynamic string parameters so SetParameter() rebuilds them without
    * freeing the saved copies; absent directives are re-preserved on success. */
-  config.serverid     = NULL;
-  config.tlscertfile  = NULL;
-  config.tlskeyfile   = NULL;
+  config.serverid = NULL;
+  config.tlscertfile = NULL;
+  config.tlskeyfile = NULL;
   config.auth.program = NULL;
-  config.auth.argv    = NULL;
+  config.auth.argv = NULL;
 
   /* Read and process all lines */
   while (fgets (line, sizeof (line), cfile))
@@ -1777,8 +1787,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   /* Close config file */
   if (fclose (cfile))
   {
-    lprintf (0, "Error closing config file %s: %s",
-             configfile, strerror (errno));
+    lprintf (0, "Error closing config file %s: %s", configfile, strerror (errno));
     goto restore_config;
   }
 
@@ -1840,7 +1849,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   else
   {
     config.auth.program = saved_auth_program;
-    config.auth.argv    = saved_auth_argv;
+    config.auth.argv = saved_auth_argv;
   }
 
   return 0;
@@ -1863,38 +1872,38 @@ restore_config:
   free (config.auth.program);
   FreeArgv (config.auth.argv);
 
-  config.writeips         = saved_writeips;
-  config.trustedips       = saved_trustedips;
-  config.allowedips       = saved_allowedips;
-  config.forbiddenips     = saved_forbiddenips;
-  config.acceptips        = saved_acceptips;
-  config.denyips          = saved_denyips;
-  config.webroot          = saved_webroot;
-  config.httpheaders      = saved_httpheaders;
-  config.usagelog.mode    = saved_usagelog_mode;
+  config.writeips = saved_writeips;
+  config.trustedips = saved_trustedips;
+  config.allowedips = saved_allowedips;
+  config.forbiddenips = saved_forbiddenips;
+  config.acceptips = saved_acceptips;
+  config.denyips = saved_denyips;
+  config.webroot = saved_webroot;
+  config.httpheaders = saved_httpheaders;
+  config.usagelog.mode = saved_usagelog_mode;
   config.usagelog.basedir = saved_usagelog_basedir;
-  config.usagelog.prefix  = saved_usagelog_prefix;
-  config.serverid         = saved_serverid;
-  config.tlscertfile      = saved_tlscertfile;
-  config.tlskeyfile       = saved_tlskeyfile;
-  config.auth.program     = saved_auth_program;
-  config.auth.argv        = saved_auth_argv;
+  config.usagelog.prefix = saved_usagelog_prefix;
+  config.serverid = saved_serverid;
+  config.tlscertfile = saved_tlscertfile;
+  config.tlskeyfile = saved_tlskeyfile;
+  config.auth.program = saved_auth_program;
+  config.auth.argv = saved_auth_argv;
 
-  config.verbose               = saved_verbose;
-  config.maxclientsperip       = saved_maxclientsperip;
-  config.infocachettl          = saved_infocachettl;
-  config.maxclients            = saved_maxclients;
-  config.clienttimeout         = saved_clienttimeout;
-  config.netiotimeout          = saved_netiotimeout;
-  config.tcpkeepalive_idle     = saved_tcpkeepalive_idle;
+  config.verbose = saved_verbose;
+  config.maxclientsperip = saved_maxclientsperip;
+  config.infocachettl = saved_infocachettl;
+  config.maxclients = saved_maxclients;
+  config.clienttimeout = saved_clienttimeout;
+  config.netiotimeout = saved_netiotimeout;
+  config.tcpkeepalive_idle = saved_tcpkeepalive_idle;
   config.tcpkeepalive_interval = saved_tcpkeepalive_interval;
-  config.tcpkeepalive_count    = saved_tcpkeepalive_count;
-  config.timewinlimit          = saved_timewinlimit;
-  config.resolvehosts          = saved_resolvehosts;
-  config.tlsverifyclientcert   = saved_tlsverifyclientcert;
-  config.auth.required         = saved_auth_required;
-  config.auth.timeout_sec      = saved_auth_timeout_sec;
-  config.usagelog.interval     = saved_usagelog_interval;
+  config.tcpkeepalive_count = saved_tcpkeepalive_count;
+  config.timewinlimit = saved_timewinlimit;
+  config.resolvehosts = saved_resolvehosts;
+  config.tlsverifyclientcert = saved_tlsverifyclientcert;
+  config.auth.required = saved_auth_required;
+  config.auth.timeout_sec = saved_auth_timeout_sec;
+  config.usagelog.interval = saved_usagelog_interval;
 
   return -1;
 } /* End of ReadConfigFile() */
@@ -1964,8 +1973,8 @@ SetParameter (const char *paramstring, int dynamiconly)
 {
 #define MAX_FIELDS 10
   char resolved_path[PATH_MAX] = {0};
-  char *field[MAX_FIELDS]      = {0};
-  char parambuf[200]           = {0};
+  char *field[MAX_FIELDS] = {0};
+  char parambuf[200] = {0};
 
   int fieldcount = 0;
 
@@ -1978,8 +1987,8 @@ SetParameter (const char *paramstring, int dynamiconly)
 
   if (strlen (paramstring) >= sizeof (parambuf))
   {
-    lprintf (0, "%s() Error, parameter string too long (%zu characters): '%.20s ...'",
-             __func__, strlen (paramstring), paramstring);
+    lprintf (0, "%s() Error, parameter string too long (%zu characters): '%.20s ...'", __func__,
+             strlen (paramstring), paramstring);
     return -1;
   }
 
@@ -1989,9 +1998,7 @@ SetParameter (const char *paramstring, int dynamiconly)
    * quoted strings and trailing '#' comments. */
   strncpy (parambuf, paramstring, sizeof (parambuf) - 1);
   parambuf[sizeof (parambuf) - 1] = '\0';
-  for (int idx = 0, start = 1, inside_quotes = 0;
-       parambuf[idx] && fieldcount < MAX_FIELDS;
-       idx++)
+  for (int idx = 0, start = 1, inside_quotes = 0; parambuf[idx] && fieldcount < MAX_FIELDS; idx++)
   {
     if (parambuf[idx] == '"')
     {
@@ -2001,7 +2008,7 @@ SetParameter (const char *paramstring, int dynamiconly)
     else if (!inside_quotes && isspace ((int)parambuf[idx]))
     {
       parambuf[idx] = '\0';
-      start         = 1;
+      start = 1;
     }
     else if (!inside_quotes && parambuf[idx] == '#')
     {
@@ -2028,15 +2035,13 @@ SetParameter (const char *paramstring, int dynamiconly)
 
     if (realpath (field[1], resolved_path) == NULL)
     {
-      lprintf (0, "Error with %s value, cannot find path: %s",
-               field[0], field[1]);
+      lprintf (0, "Error with %s value, cannot find path: %s", field[0], field[1]);
       return -1;
     }
 
     if (access (resolved_path, W_OK))
     {
-      lprintf (0, "Error with %s value, cannot write to directory: %s",
-               field[0], resolved_path);
+      lprintf (0, "Error with %s value, cannot write to directory: %s", field[0], resolved_path);
       return -1;
     }
 
@@ -2106,10 +2111,8 @@ SetParameter (const char *paramstring, int dynamiconly)
 
     config.memorymapring = intval;
   }
-  else if ((!strcasecmp ("ListenPort", field[0]) ||
-            !strcasecmp ("DataLinkPort", field[0]) ||
-            !strcasecmp ("SeedLinkPort", field[0]) ||
-            !strcasecmp ("HTTPPort", field[0])) &&
+  else if ((!strcasecmp ("ListenPort", field[0]) || !strcasecmp ("DataLinkPort", field[0]) ||
+            !strcasecmp ("SeedLinkPort", field[0]) || !strcasecmp ("HTTPPort", field[0])) &&
            fieldcount >= 2)
   {
     if (dynamiconly)
@@ -2133,12 +2136,10 @@ SetParameter (const char *paramstring, int dynamiconly)
       lpp.protocols = 0;
 
     lpp.options = 0;
-    lpp.socket  = -1;
+    lpp.socket = -1;
 
     /* Parse optional protocol flags to limit allowed protocols */
-    for (int idx = 2, allow_protocols = (lpp.protocols == 0) ? 1 : 0;
-         idx < fieldcount;
-         idx++)
+    for (int idx = 2, allow_protocols = (lpp.protocols == 0) ? 1 : 0; idx < fieldcount; idx++)
     {
       if (allow_protocols && !strcasecmp ("DataLink", field[idx]))
         lpp.protocols |= PROTO_DATALINK;
@@ -2187,15 +2188,13 @@ SetParameter (const char *paramstring, int dynamiconly)
   {
     if (realpath (field[1], resolved_path) == NULL)
     {
-      lprintf (0, "Error with %s value, cannot find path: %s",
-               field[0], field[1]);
+      lprintf (0, "Error with %s value, cannot find path: %s", field[0], field[1]);
       return -1;
     }
 
     if (access (resolved_path, R_OK))
     {
-      lprintf (0, "Error with %s value, cannot read file: %s",
-               field[0], resolved_path);
+      lprintf (0, "Error with %s value, cannot read file: %s", field[0], resolved_path);
       return -1;
     }
 
@@ -2206,15 +2205,13 @@ SetParameter (const char *paramstring, int dynamiconly)
   {
     if (realpath (field[1], resolved_path) == NULL)
     {
-      lprintf (0, "Error with %s value, cannot find path: %s",
-               field[0], field[1]);
+      lprintf (0, "Error with %s value, cannot find path: %s", field[0], field[1]);
       return -1;
     }
 
     if (access (resolved_path, R_OK))
     {
-      lprintf (0, "Error with %s value, cannot read file: %s",
-               field[0], resolved_path);
+      lprintf (0, "Error with %s value, cannot read file: %s", field[0], resolved_path);
       return -1;
     }
 
@@ -2340,7 +2337,8 @@ SetParameter (const char *paramstring, int dynamiconly)
 
     if (intval < 0 || intval > 100)
     {
-      lprintf (0, "Error, config parameter %s must be between 0 and 100: %s", field[0], paramstring);
+      lprintf (0, "Error, config parameter %s must be between 0 and 100: %s", field[0],
+               paramstring);
       return -1;
     }
 
@@ -2352,20 +2350,18 @@ SetParameter (const char *paramstring, int dynamiconly)
   {
     if (realpath (field[1], resolved_path) == NULL)
     {
-      lprintf (0, "Error with %s value, cannot find path: %s",
-               field[0], field[1]);
+      lprintf (0, "Error with %s value, cannot find path: %s", field[0], field[1]);
       return -1;
     }
 
     if (access (resolved_path, W_OK))
     {
-      lprintf (0, "Error with %s value, cannot write to directory: %s",
-               field[0], resolved_path);
+      lprintf (0, "Error with %s value, cannot write to directory: %s", field[0], resolved_path);
       return -1;
     }
 
     free (config.usagelog.basedir);
-    char *basedir           = strdup (resolved_path);
+    char *basedir = strdup (resolved_path);
     config.usagelog.basedir = basedir;
 
     /* Enable TX, RX, and access logging as defaults */
@@ -2388,8 +2384,7 @@ SetParameter (const char *paramstring, int dynamiconly)
     ivalue = (int)(fvalue * 3600.0 + 0.5);
     if (ivalue <= 0)
     {
-      lprintf (0, "Error with %s config parameter: must be > 0 hours (%s)",
-               field[0], paramstring);
+      lprintf (0, "Error with %s config parameter: must be > 0 hours (%s)", field[0], paramstring);
       return -1;
     }
 
@@ -2402,8 +2397,7 @@ SetParameter (const char *paramstring, int dynamiconly)
     free (config.usagelog.prefix);
     config.usagelog.prefix = strdup (field[1]);
   }
-  else if ((!strcasecmp ("UsageLogTX", field[0]) ||
-            !strcasecmp ("TransferLogTX", field[0])) &&
+  else if ((!strcasecmp ("UsageLogTX", field[0]) || !strcasecmp ("TransferLogTX", field[0])) &&
            fieldcount == 2)
   {
     if ((intval = YesNo (field[1])) < 0)
@@ -2417,8 +2411,7 @@ SetParameter (const char *paramstring, int dynamiconly)
     else
       config.usagelog.mode &= ~USAGELOG_TX;
   }
-  else if ((!strcasecmp ("UsageLogRX", field[0]) ||
-            !strcasecmp ("TransferLogRX", field[0])) &&
+  else if ((!strcasecmp ("UsageLogRX", field[0]) || !strcasecmp ("TransferLogRX", field[0])) &&
            fieldcount == 2)
   {
     if ((intval = YesNo (field[1])) < 0)
@@ -2504,7 +2497,8 @@ SetParameter (const char *paramstring, int dynamiconly)
       return -1;
     }
   }
-  else if ((!strcasecmp ("AllowedStreamsIP", field[0]) || !strcasecmp ("LimitIP", field[0])) && fieldcount == 3)
+  else if ((!strcasecmp ("AllowedStreamsIP", field[0]) || !strcasecmp ("LimitIP", field[0])) &&
+           fieldcount == 3)
   {
     if (AddIPNet (&config.allowedips, field[1], field[2]))
     {
@@ -2523,7 +2517,8 @@ SetParameter (const char *paramstring, int dynamiconly)
       return -1;
     }
   }
-  else if ((!strcasecmp ("AcceptIP", field[0]) || !strcasecmp ("MatchIP", field[0])) && fieldcount == 2)
+  else if ((!strcasecmp ("AcceptIP", field[0]) || !strcasecmp ("MatchIP", field[0])) &&
+           fieldcount == 2)
   {
     if (AddIPNet (&config.acceptips, field[1], NULL))
     {
@@ -2534,7 +2529,8 @@ SetParameter (const char *paramstring, int dynamiconly)
     if (!strcasecmp ("MatchIP", field[0]))
       lprintf (1, "MatchIP config parameter is deprecated, use AcceptIP instead");
   }
-  else if ((!strcasecmp ("DenyIP", field[0]) || !strcasecmp ("RejectIP", field[0])) && fieldcount == 2)
+  else if ((!strcasecmp ("DenyIP", field[0]) || !strcasecmp ("RejectIP", field[0])) &&
+           fieldcount == 2)
   {
     if (AddIPNet (&config.denyips, field[1], NULL))
     {
@@ -2549,15 +2545,13 @@ SetParameter (const char *paramstring, int dynamiconly)
   {
     if (realpath (field[1], resolved_path) == NULL)
     {
-      lprintf (0, "Error with %s value, cannot find path: %s",
-               field[0], field[1]);
+      lprintf (0, "Error with %s value, cannot find path: %s", field[0], field[1]);
       return -1;
     }
 
     if (access (resolved_path, R_OK))
     {
-      lprintf (0, "Error with %s value, cannot access directory: %s",
-               field[0], resolved_path);
+      lprintf (0, "Error with %s value, cannot access directory: %s", field[0], resolved_path);
       return -1;
     }
 
@@ -2569,7 +2563,8 @@ SetParameter (const char *paramstring, int dynamiconly)
     char *combined_value = NULL;
 
     /* Append multiple headers to composite string */
-    if (AllocPrintf (&combined_value, "%s%s\r\n", (config.httpheaders) ? config.httpheaders : "", field[1]) < 0)
+    if (AllocPrintf (&combined_value, "%s%s\r\n", (config.httpheaders) ? config.httpheaders : "",
+                     field[1]) < 0)
     {
       lprintf (0, "Error allocating memory");
       return -1;
@@ -2596,11 +2591,10 @@ SetParameter (const char *paramstring, int dynamiconly)
 
     /* Recombine option parameters for AddMSeedScanThread() to parse, TODO improve this */
     char scanparams[1024] = {0};
-    size_t offset         = 0;
+    size_t offset = 0;
     for (int idx = 1; idx < fieldcount; idx++)
     {
-      int written = snprintf (scanparams + offset, sizeof (scanparams) - offset,
-                              "%s ", field[idx]);
+      int written = snprintf (scanparams + offset, sizeof (scanparams) - offset, "%s ", field[idx]);
       if (written < 0 || (size_t)written >= sizeof (scanparams) - offset)
       {
         lprintf (0, "Error with %s config parameter, value too long: %s", field[0], paramstring);
@@ -2651,17 +2645,11 @@ YesNo (const char *value)
   if (!value)
     return -1;
 
-  if (*value == '1' ||
-      !strcasecmp (value, "y") ||
-      !strcasecmp (value, "yes") ||
-      !strcasecmp (value, "true") ||
-      !strcasecmp (value, "on"))
+  if (*value == '1' || !strcasecmp (value, "y") || !strcasecmp (value, "yes") ||
+      !strcasecmp (value, "true") || !strcasecmp (value, "on"))
     return 1;
-  else if (*value == '0' ||
-           !strcasecmp (value, "n") ||
-           !strcasecmp (value, "no") ||
-           !strcasecmp (value, "false") ||
-           !strcasecmp (value, "off"))
+  else if (*value == '0' || !strcasecmp (value, "n") || !strcasecmp (value, "no") ||
+           !strcasecmp (value, "false") || !strcasecmp (value, "off"))
     return 0;
   else
     return -1;
@@ -2681,8 +2669,8 @@ InitServerSocket (char *portstr, ListenOptions options)
   struct addrinfo *addr = NULL;
   struct addrinfo hints;
   char *familystr = NULL;
-  int fd          = -1;
-  int result_fd   = -1;
+  int fd = -1;
+  int result_fd = -1;
   int optval;
   int gaierror;
 
@@ -2695,26 +2683,26 @@ InitServerSocket (char *portstr, ListenOptions options)
   if (options & FAMILY_IPv4)
   {
     hints.ai_family = AF_INET;
-    familystr       = "IPv4";
+    familystr = "IPv4";
   }
   else if (options & FAMILY_IPv6)
   {
     hints.ai_family = AF_INET6;
-    familystr       = "IPv6";
+    familystr = "IPv6";
   }
   else
   {
     hints.ai_family = AF_UNSPEC;
-    familystr       = "IPvUnspecified";
+    familystr = "IPvUnspecified";
   }
 
   hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags    = AI_PASSIVE;
+  hints.ai_flags = AI_PASSIVE;
 
   if ((gaierror = getaddrinfo (NULL, portstr, &hints, &addr)))
   {
-    lprintf (0, "Error with getaddrinfo(), %s port %s: %s",
-             familystr, portstr, gai_strerror (gaierror));
+    lprintf (0, "Error with getaddrinfo(), %s port %s: %s", familystr, portstr,
+             gai_strerror (gaierror));
     return -1;
   }
 
@@ -2724,16 +2712,15 @@ InitServerSocket (char *portstr, ListenOptions options)
   {
     /* Print error only if not "unsupported" IPv6, as this is expected */
     if (!(addr->ai_family == AF_INET6 && errno == EAFNOSUPPORT))
-      lprintf (0, "Error with socket(), %s port %s: %s",
-               familystr, portstr, strerror (errno));
+      lprintf (0, "Error with socket(), %s port %s: %s", familystr, portstr, strerror (errno));
     goto cleanup;
   }
 
   optval = 1;
   if (setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)))
   {
-    lprintf (0, "Error setting SO_REUSEADDR with setsockopt(), %s port %s: %s",
-             familystr, portstr, strerror (errno));
+    lprintf (0, "Error setting SO_REUSEADDR with setsockopt(), %s port %s: %s", familystr, portstr,
+             strerror (errno));
     goto cleanup;
   }
 
@@ -2741,28 +2728,26 @@ InitServerSocket (char *portstr, ListenOptions options)
   if (addr->ai_family == AF_INET6 &&
       setsockopt (fd, IPPROTO_IPV6, IPV6_V6ONLY, &optval, sizeof (optval)))
   {
-    lprintf (0, "Error setting IPV6_V6ONLY with setsockopt(), %s port %s: %s",
-             familystr, portstr, strerror (errno));
+    lprintf (0, "Error setting IPV6_V6ONLY with setsockopt(), %s port %s: %s", familystr, portstr,
+             strerror (errno));
     goto cleanup;
   }
 
   if (bind (fd, addr->ai_addr, addr->ai_addrlen) < 0)
   {
-    lprintf (0, "Error with bind(), %s port %s: %s",
-             familystr, portstr, strerror (errno));
+    lprintf (0, "Error with bind(), %s port %s: %s", familystr, portstr, strerror (errno));
     goto cleanup;
   }
 
   if (listen (fd, 10) == -1)
   {
-    lprintf (0, "Error with listen(), %s port %s: %s",
-             familystr, portstr, strerror (errno));
+    lprintf (0, "Error with listen(), %s port %s: %s", familystr, portstr, strerror (errno));
     goto cleanup;
   }
 
   /* Success: transfer fd ownership to caller so cleanup does not close it. */
   result_fd = fd;
-  fd        = -1;
+  fd = -1;
 
 cleanup:
   /* Single error path: always free addrinfo (the previous code leaked it on
@@ -2790,7 +2775,7 @@ static int
 ConfigMSWrite (char *archive)
 {
   char *layout = NULL;
-  char *path   = NULL;
+  char *path = NULL;
 
   /* Parse layout specification if present */
   if ((path = strchr (archive, '@')))
@@ -2887,7 +2872,7 @@ AddListenThreads (ListenPortParams *lpp)
   if (families == 0 || (families & FAMILY_IPv4))
   {
     lpp->options = options | FAMILY_IPv4;
-    lpp->socket  = InitServerSocket (lpp->portstr, lpp->options);
+    lpp->socket = InitServerSocket (lpp->portstr, lpp->options);
 
     if (lpp->socket > 0)
     {
@@ -2912,7 +2897,7 @@ AddListenThreads (ListenPortParams *lpp)
   if (families == 0 || (families & FAMILY_IPv6))
   {
     lpp->options = options | FAMILY_IPv6;
-    lpp->socket  = InitServerSocket (lpp->portstr, lpp->options);
+    lpp->socket = InitServerSocket (lpp->portstr, lpp->options);
 
     if (lpp->socket > 0)
     {
@@ -2960,13 +2945,13 @@ AddMSeedScanThread (const char *scanconfig)
 
   /* Set miniSEED scanning defaults */
   memset (&mssinfo, 0, sizeof (MSScanInfo)); /* Init struct to zeros */
-  mssinfo.maxrecur     = -1;                 /* Maximum level of directory recursion, -1 is no limit */
-  mssinfo.scansleep0   = 1;                  /* Sleep between scans interval when no records found */
-  mssinfo.idledelay    = 60;                 /* Check idle files every idledelay scans */
-  mssinfo.idlesec      = 7200;               /* Files are idle if not modified for idlesec */
-  mssinfo.throttlensec = 100;                /* Nanoseconds to sleep after reading each record */
-  mssinfo.filemaxrecs  = 100;                /* Maximum records to read from each file per scan */
-  mssinfo.stateint     = 300;                /* State saving interval in seconds */
+  mssinfo.maxrecur = -1;      /* Maximum level of directory recursion, -1 is no limit */
+  mssinfo.scansleep0 = 1;     /* Sleep between scans interval when no records found */
+  mssinfo.idledelay = 60;     /* Check idle files every idledelay scans */
+  mssinfo.idlesec = 7200;     /* Files are idle if not modified for idlesec */
+  mssinfo.throttlensec = 100; /* Nanoseconds to sleep after reading each record */
+  mssinfo.filemaxrecs = 100;  /* Maximum records to read from each file per scan */
+  mssinfo.stateint = 300;     /* State saving interval in seconds */
 
   snprintf (myconfig, sizeof (myconfig), "%s", scanconfig);
   configstr = myconfig;
@@ -2983,7 +2968,8 @@ AddMSeedScanThread (const char *scanconfig)
     *vptr++ = '\0';
 
   /* Initial portion of the config string is the directory to scan */
-  snprintf (mssinfo.dirname, sizeof (mssinfo.dirname), "%.*s", (int)sizeof (mssinfo.dirname) - 1, configstr);
+  snprintf (mssinfo.dirname, sizeof (mssinfo.dirname), "%.*s", (int)sizeof (mssinfo.dirname) - 1,
+            configstr);
 
   /* Search for optional parameters */
   while (*vptr && (vptr = strchr (vptr, '=')))
@@ -3056,8 +3042,7 @@ AddMSeedScanThread (const char *scanconfig)
   /* Add to server thread list */
   if (AddServerThread (MSEEDSCAN_THREAD, &mssinfo))
   {
-    lprintf (0, "Error adding server thread for MSeedScan config file line: %s",
-             configstr);
+    lprintf (0, "Error adding server thread for MSeedScan config file line: %s", configstr);
     return -1;
   }
 
@@ -3112,8 +3097,7 @@ AddServerThread (ServerThreadType type, void *params)
   }
   else
   {
-    lprintf (0, "%s() Error, unrecognized server thread type: %d",
-             __func__, type);
+    lprintf (0, "%s() Error, unrecognized server thread type: %d", __func__, type);
     free (nstp);
     return -1;
   }
@@ -3128,7 +3112,7 @@ AddServerThread (ServerThreadType type, void *params)
       stp = stp->next;
     }
 
-    stp->next  = nstp;
+    stp->next = nstp;
     nstp->prev = stp;
   }
   else
@@ -3259,10 +3243,10 @@ AddIPNet (IPNet **pplist, const char *network, const char *limitstr)
   struct sockaddr_in *sockaddr;
   struct sockaddr_in6 *sockaddr6;
   IPNet *newipnet;
-  char net[100]      = {0};
-  char *endptr       = NULL;
-  char *prefixstr    = NULL;
-  uint64_t prefix    = 0;
+  char net[100] = {0};
+  char *endptr = NULL;
+  char *prefixstr = NULL;
+  uint64_t prefix = 0;
   uint32_t v4netmask = 0;
   int rv;
   int idx;
@@ -3284,13 +3268,13 @@ AddIPNet (IPNet **pplist, const char *network, const char *limitstr)
   /* Convert prefix string to value */
   if (IsAllDigits (prefixstr))
   {
-    errno  = 0;
+    errno = 0;
     prefix = strtoul (prefixstr, &endptr, 10);
 
     if (errno)
     {
-      lprintf (0, "%s(): Error converting prefix value (%s): %s",
-               __func__, prefixstr, strerror (errno));
+      lprintf (0, "%s(): Error converting prefix value (%s): %s", __func__, prefixstr,
+               strerror (errno));
       return -1;
     }
 
@@ -3333,8 +3317,8 @@ AddIPNet (IPNet **pplist, const char *network, const char *limitstr)
   /* Convert address portion to binary address, resolving if possible */
   memset (&hints, 0, sizeof (hints));
   hints.ai_socktype = SOCK_STREAM;
-  hints.ai_family   = AF_UNSPEC;     /* Either IPv4 and/or IPv6 */
-  hints.ai_flags    = AI_ADDRCONFIG; /* Only return entries that could actually connect */
+  hints.ai_family = AF_UNSPEC;    /* Either IPv4 and/or IPv6 */
+  hints.ai_flags = AI_ADDRCONFIG; /* Only return entries that could actually connect */
 
   if ((rv = getaddrinfo (net, NULL, &hints, &addrlist)) != 0)
   {
@@ -3373,7 +3357,7 @@ AddIPNet (IPNet **pplist, const char *network, const char *limitstr)
         newipnet->netmask.in_addr.s_addr = htonl (newipnet->netmask.in_addr.s_addr);
       }
 
-      sockaddr                         = (struct sockaddr_in *)addr->ai_addr;
+      sockaddr = (struct sockaddr_in *)addr->ai_addr;
       newipnet->network.in_addr.s_addr = sockaddr->sin_addr.s_addr;
 
       /* Calculate network: AND the address and netmask */
@@ -3422,7 +3406,7 @@ AddIPNet (IPNet **pplist, const char *network, const char *limitstr)
 
     /* Push the new entry on the top of the list */
     newipnet->next = *pplist;
-    *pplist        = newipnet;
+    *pplist = newipnet;
   }
 
   if (addrlist)
@@ -3452,7 +3436,7 @@ SetAuthCommand (const char *program, char **argv, int argc)
   free (config.auth.program);
   FreeArgv (config.auth.argv);
   config.auth.program = NULL;
-  config.auth.argv    = NULL;
+  config.auth.argv = NULL;
 
   /* Set new parameters */
   if ((config.auth.program = strdup (program)) == NULL)

@@ -28,11 +28,11 @@
 #include <libmseed.h>
 #include <mxml.h>
 
-#include "yyjson.h"
+#include "dlclient.h"
 #include "generic.h"
 #include "infojson.h"
 #include "slclient.h"
-#include "dlclient.h"
+#include "yyjson.h"
 
 #define DASHNULL(x) ((x) ? (x) : "-")
 
@@ -47,7 +47,7 @@
 char *
 info_xml_slv3_id (ClientInfo *cinfo, const char *software)
 {
-  mxml_node_t *xmldoc   = NULL;
+  mxml_node_t *xmldoc = NULL;
   mxml_node_t *seedlink = NULL;
 
   yyjson_doc *json;
@@ -83,12 +83,10 @@ info_xml_slv3_id (ClientInfo *cinfo, const char *software)
   }
 
   /* Translate JSON to XML */
-  mxmlElementSetAttr (seedlink, "software",
-                      yyjson_get_str (yyjson_obj_get (root, "software")));
+  mxmlElementSetAttr (seedlink, "software", yyjson_get_str (yyjson_obj_get (root, "software")));
   mxmlElementSetAttr (seedlink, "organization",
                       yyjson_get_str (yyjson_obj_get (root, "organization")));
-  mxmlElementSetAttr (seedlink, "started",
-                      yyjson_get_str (yyjson_obj_get (root, "server_start")));
+  mxmlElementSetAttr (seedlink, "started", yyjson_get_str (yyjson_obj_get (root, "server_start")));
 
   /* Generate XML string */
   mxml_options_t *options = mxmlOptionsNew ();
@@ -115,8 +113,8 @@ info_xml_slv3_id (ClientInfo *cinfo, const char *software)
 char *
 info_xml_slv3_capabilities (ClientInfo *cinfo, const char *software)
 {
-  mxml_node_t *xmldoc     = NULL;
-  mxml_node_t *seedlink   = NULL;
+  mxml_node_t *xmldoc = NULL;
+  mxml_node_t *seedlink = NULL;
   mxml_node_t *capability = NULL;
 
   yyjson_doc *json;
@@ -125,9 +123,9 @@ info_xml_slv3_capabilities (ClientInfo *cinfo, const char *software)
   char *xml_string = NULL;
 
   /* Fixed v3 capabilities */
-  const char *caps[8] = {"dialup", "multistation", "window-extraction", "info:id",
-                         "info:capabilities", "info:stations", "info:streams",
-                         "info:connections"};
+  const char *caps[8] = {"dialup",       "multistation",      "window-extraction",
+                         "info:id",      "info:capabilities", "info:stations",
+                         "info:streams", "info:connections"};
 
   /* Generate JSON formatted document for INFO ID level */
   if ((json_string = info_json (cinfo, software, INFO_ID, NULL)) == NULL)
@@ -157,12 +155,10 @@ info_xml_slv3_capabilities (ClientInfo *cinfo, const char *software)
   }
 
   /* Translate JSON to XML */
-  mxmlElementSetAttr (seedlink, "software",
-                      yyjson_get_str (yyjson_obj_get (root, "software")));
+  mxmlElementSetAttr (seedlink, "software", yyjson_get_str (yyjson_obj_get (root, "software")));
   mxmlElementSetAttr (seedlink, "organization",
                       yyjson_get_str (yyjson_obj_get (root, "organization")));
-  mxmlElementSetAttr (seedlink, "started",
-                      yyjson_get_str (yyjson_obj_get (root, "server_start")));
+  mxmlElementSetAttr (seedlink, "started", yyjson_get_str (yyjson_obj_get (root, "server_start")));
 
   /* Add capabilities */
   for (int idx = 0; idx < 8; idx++)
@@ -200,17 +196,17 @@ info_xml_slv3_capabilities (ClientInfo *cinfo, const char *software)
 char *
 info_xml_slv3_stations (ClientInfo *cinfo, const char *software, int include_streams)
 {
-  mxml_node_t *xmldoc   = NULL;
+  mxml_node_t *xmldoc = NULL;
   mxml_node_t *seedlink = NULL;
-  mxml_node_t *station  = NULL;
-  mxml_node_t *stream   = NULL;
+  mxml_node_t *station = NULL;
+  mxml_node_t *stream = NULL;
 
   yyjson_doc *json;
   yyjson_val *root;
   yyjson_val *station_array;
   yyjson_val *stream_array;
   yyjson_val *station_iter = NULL;
-  yyjson_val *stream_iter  = NULL;
+  yyjson_val *stream_iter = NULL;
   size_t idx, max;
   size_t idxsub, maxsub;
 
@@ -251,12 +247,10 @@ info_xml_slv3_stations (ClientInfo *cinfo, const char *software, int include_str
   }
 
   /* Translate JSON to XML */
-  mxmlElementSetAttr (seedlink, "software",
-                      yyjson_get_str (yyjson_obj_get (root, "software")));
+  mxmlElementSetAttr (seedlink, "software", yyjson_get_str (yyjson_obj_get (root, "software")));
   mxmlElementSetAttr (seedlink, "organization",
                       yyjson_get_str (yyjson_obj_get (root, "organization")));
-  mxmlElementSetAttr (seedlink, "started",
-                      yyjson_get_str (yyjson_obj_get (root, "server_start")));
+  mxmlElementSetAttr (seedlink, "started", yyjson_get_str (yyjson_obj_get (root, "server_start")));
 
   /* Add stations */
   if ((station_array = yyjson_obj_get (root, "station")) != NULL)
@@ -355,9 +349,9 @@ info_xml_slv3_stations (ClientInfo *cinfo, const char *software, int include_str
 char *
 info_xml_slv3_connections (ClientInfo *cinfo, const char *software)
 {
-  mxml_node_t *xmldoc     = NULL;
-  mxml_node_t *seedlink   = NULL;
-  mxml_node_t *station    = NULL;
+  mxml_node_t *xmldoc = NULL;
+  mxml_node_t *seedlink = NULL;
+  mxml_node_t *station = NULL;
   mxml_node_t *connection = NULL;
 
   yyjson_doc *json;
@@ -399,12 +393,10 @@ info_xml_slv3_connections (ClientInfo *cinfo, const char *software)
   }
 
   /* Translate JSON to XML */
-  mxmlElementSetAttr (seedlink, "software",
-                      yyjson_get_str (yyjson_obj_get (root, "software")));
+  mxmlElementSetAttr (seedlink, "software", yyjson_get_str (yyjson_obj_get (root, "software")));
   mxmlElementSetAttr (seedlink, "organization",
                       yyjson_get_str (yyjson_obj_get (root, "organization")));
-  mxmlElementSetAttr (seedlink, "started",
-                      yyjson_get_str (yyjson_obj_get (root, "server_start")));
+  mxmlElementSetAttr (seedlink, "started", yyjson_get_str (yyjson_obj_get (root, "server_start")));
 
   /* Add stations and connections */
   if ((client_array = yyjson_ptr_get (root, "/connections/client")) != NULL)
@@ -481,8 +473,8 @@ info_xml_slv3_connections (ClientInfo *cinfo, const char *software)
  * Returns pointer to the document on success and NULL on error.
  ***************************************************************************/
 char *
-info_xml_dlv1 (ClientInfo *cinfo, const char *software, const char *level,
-               const char *matchexpr, uint8_t trusted)
+info_xml_dlv1 (ClientInfo *cinfo, const char *software, const char *level, const char *matchexpr,
+               uint8_t trusted)
 {
   mxml_node_t *xmldoc = NULL;
   mxml_node_t *status = NULL;
@@ -529,10 +521,8 @@ info_xml_dlv1 (ClientInfo *cinfo, const char *software, const char *level,
   }
 
   /* Translate JSON to XML */
-  mxmlElementSetAttr (xmldoc, "Version",
-                      yyjson_get_str (yyjson_obj_get (root, "software")));
-  mxmlElementSetAttr (xmldoc, "ServerID",
-                      yyjson_get_str (yyjson_obj_get (root, "organization")));
+  mxmlElementSetAttr (xmldoc, "Version", yyjson_get_str (yyjson_obj_get (root, "software")));
+  mxmlElementSetAttr (xmldoc, "ServerID", yyjson_get_str (yyjson_obj_get (root, "organization")));
   mxmlElementSetAttrf (xmldoc, "Capabilities", "%s PACKETSIZE:%lu%s", DLCAPABILITIES_ID,
                        (unsigned long int)(param.pktsize - sizeof (RingPacket)),
                        (cinfo->permissions & WRITE_PERMISSION) ? " WRITE" : "");
@@ -561,25 +551,28 @@ info_xml_dlv1 (ClientInfo *cinfo, const char *software, const char *level,
     mxmlElementSetAttrf (status, "MaximumPackets", "%" PRIu64,
                          yyjson_get_uint (yyjson_obj_get (server, "maximum_packets")));
     mxmlElementSetAttrf (status, "MemoryMappedRing", "%s",
-                         (yyjson_get_bool (yyjson_obj_get (server, "memory_mapped"))) ? "TRUE" : "FALSE");
+                         (yyjson_get_bool (yyjson_obj_get (server, "memory_mapped"))) ? "TRUE"
+                                                                                      : "FALSE");
     mxmlElementSetAttrf (status, "VolatileRing", "%s",
-                         (yyjson_get_bool (yyjson_obj_get (server, "volatile_ring"))) ? "TRUE" : "FALSE");
+                         (yyjson_get_bool (yyjson_obj_get (server, "volatile_ring"))) ? "TRUE"
+                                                                                      : "FALSE");
     mxmlElementSetAttrf (status, "TotalConnections", "%d",
                          yyjson_get_int (yyjson_obj_get (server, "connection_count")));
     mxmlElementSetAttrf (status, "TotalStreams", "%d",
-                          yyjson_get_int (yyjson_obj_get (server, "stream_count")));
+                         yyjson_get_int (yyjson_obj_get (server, "stream_count")));
     mxmlElementSetAttrf (status, "TXPacketRate", "%.1f",
                          yyjson_get_real (yyjson_obj_get (server, "transmit_packet_rate")));
     mxmlElementSetAttrf (status, "TXByteRate", "%.1f",
-                          yyjson_get_real (yyjson_obj_get (server, "transmit_byte_rate")));
+                         yyjson_get_real (yyjson_obj_get (server, "transmit_byte_rate")));
     mxmlElementSetAttrf (status, "RXPacketRate", "%.1f",
                          yyjson_get_real (yyjson_obj_get (server, "receive_packet_rate")));
     mxmlElementSetAttrf (status, "RXByteRate", "%.1f",
                          yyjson_get_real (yyjson_obj_get (server, "receive_byte_rate")));
     mxmlElementSetAttrf (status, "EarliestPacketID", "%" PRIu64,
                          yyjson_get_uint (yyjson_obj_get (server, "earliest_packet_id")));
-    mxmlElementSetAttr (status, "EarliestPacketCreationTime",
-                        DASHNULL (yyjson_get_str (yyjson_obj_get (server, "earliest_packet_time"))));
+    mxmlElementSetAttr (
+        status, "EarliestPacketCreationTime",
+        DASHNULL (yyjson_get_str (yyjson_obj_get (server, "earliest_packet_time"))));
     mxmlElementSetAttr (status, "EarliestPacketDataStartTime",
                         DASHNULL (yyjson_get_str (yyjson_obj_get (server, "earliest_data_start"))));
     mxmlElementSetAttr (status, "EarliestPacketDataEndTime",
@@ -594,7 +587,8 @@ info_xml_dlv1 (ClientInfo *cinfo, const char *software, const char *level,
                         DASHNULL (yyjson_get_str (yyjson_obj_get (server, "latest_data_end"))));
   }
 
-  if (elements == (INFO_STATUS | INFO_ID) && trusted) /* Only add server threads if client is trusted */
+  if (elements == (INFO_STATUS | INFO_ID) &&
+      trusted) /* Only add server threads if client is trusted */
   {
     yyjson_val *thread_array;
     yyjson_val *thread_iter = NULL;
@@ -769,10 +763,12 @@ info_xml_dlv1 (ClientInfo *cinfo, const char *software, const char *level,
                            yyjson_get_int (yyjson_obj_get (client_iter, "stream_count")));
       mxmlElementSetAttrf (conn, "PacketID", "%" PRIu64,
                            yyjson_get_uint (yyjson_obj_get (client_iter, "packet_id")));
-      mxmlElementSetAttr (conn, "PacketDataStartTime",
-                          DASHNULL (yyjson_get_str (yyjson_obj_get (client_iter, "packet_data_start_time"))));
-      mxmlElementSetAttr (conn, "PacketCreationTime",
-                          DASHNULL (yyjson_get_str (yyjson_obj_get (client_iter, "packet_creation_time"))));
+      mxmlElementSetAttr (
+          conn, "PacketDataStartTime",
+          DASHNULL (yyjson_get_str (yyjson_obj_get (client_iter, "packet_data_start_time"))));
+      mxmlElementSetAttr (
+          conn, "PacketCreationTime",
+          DASHNULL (yyjson_get_str (yyjson_obj_get (client_iter, "packet_creation_time"))));
       mxmlElementSetAttrf (conn, "TXPacketCount", "%" PRIu64,
                            yyjson_get_uint (yyjson_obj_get (client_iter, "transmit_packets")));
       mxmlElementSetAttrf (conn, "TXPacketRate", "%.1f",

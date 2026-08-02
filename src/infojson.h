@@ -35,21 +35,21 @@ extern "C"
 /* Info elements, most are defined in SeedLink v4 */
 typedef enum
 {
-  INFO_ID              = 1u << 1,
-  INFO_CAPABILITIES    = 1u << 2,
-  INFO_FORMATS         = 1u << 3,
-  INFO_FILTERS         = 1u << 4,
-  INFO_STATIONS        = 1u << 5,
+  INFO_ID = 1u << 1,
+  INFO_CAPABILITIES = 1u << 2,
+  INFO_FORMATS = 1u << 3,
+  INFO_FILTERS = 1u << 4,
+  INFO_STATIONS = 1u << 5,
   INFO_STATION_STREAMS = 1u << 6,
-  INFO_STREAMS         = 1u << 7,
-  INFO_CONNECTIONS     = 1u << 8,
-  INFO_STATUS          = 1u << 9,
+  INFO_STREAMS = 1u << 7,
+  INFO_CONNECTIONS = 1u << 8,
+  INFO_STATUS = 1u << 9,
 } InfoElements;
 
-extern char *info_json (ClientInfo *cinfo, const char *software,
-                        InfoElements elements, const char *matchexpr);
-extern char *error_json (ClientInfo *cinfo, const char *software,
-                         const char *code, const char *message);
+extern char *info_json (ClientInfo *cinfo, const char *software, InfoElements elements,
+                        const char *matchexpr);
+extern char *error_json (ClientInfo *cinfo, const char *software, const char *code,
+                         const char *message);
 extern void InfoCacheFlush (void);
 
 #ifdef __cplusplus

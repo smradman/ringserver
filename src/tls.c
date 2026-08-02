@@ -21,11 +21,11 @@
 
 #include <time.h>
 
-#include "tls.h"
 #include "logging.h"
 #include "ringserver.h"
+#include "tls.h"
 
-#define TLS_HANDSHAKE_TIMEOUT_MAX 30  /* Upper bound when netiotimeout is disabled */
+#define TLS_HANDSHAKE_TIMEOUT_MAX 30 /* Upper bound when netiotimeout is disabled */
 
 /* Debug output for TLS */
 void
@@ -59,14 +59,14 @@ int
 TLSConfigure (ClientInfo *cinfo)
 {
   TLSCTX *tlsctx = NULL;
-  char *evalue   = NULL;
+  char *evalue = NULL;
   char seedbuffer[256];
   uint32_t flags;
   int debug_level = 0;
   int ret;
 
   char tlscertfile[PATH_MAX] = {0};
-  char tlskeyfile[PATH_MAX]  = {0};
+  char tlskeyfile[PATH_MAX] = {0};
 
   pthread_rwlock_rdlock (&config.config_rwlock);
   if (config.tlscertfile)
@@ -108,8 +108,8 @@ TLSConfigure (ClientInfo *cinfo)
   if ((evalue = getenv ("RINGSERVER_TLS_DEBUG")) != NULL)
   {
     debug_level = (int)strtol (evalue, NULL, 10);
-    lprintf (1, "[%s] Configuring debug level %d (from RINGSERVER_TLS_DEBUG)",
-             cinfo->hostname, debug_level);
+    lprintf (1, "[%s] Configuring debug level %d (from RINGSERVER_TLS_DEBUG)", cinfo->hostname,
+             debug_level);
 
     if (debug_level > 0)
     {
@@ -127,14 +127,14 @@ TLSConfigure (ClientInfo *cinfo)
   mbedtls_ctr_drbg_init (&tlsctx->ctr_drbg);
 
   /* Seed the random number generator with hostname and thread ID as personalization */
-  snprintf (seedbuffer, sizeof (seedbuffer), "%s+%lu", cinfo->hostname, (unsigned long)pthread_self ());
+  snprintf (seedbuffer, sizeof (seedbuffer), "%s+%lu", cinfo->hostname,
+            (unsigned long)pthread_self ());
 
-  if ((ret = mbedtls_ctr_drbg_seed (&tlsctx->ctr_drbg, mbedtls_entropy_func,
-                                    &tlsctx->entropy,
-                                    (const unsigned char *)seedbuffer,
-                                    strlen (seedbuffer))) != 0)
+  if ((ret = mbedtls_ctr_drbg_seed (&tlsctx->ctr_drbg, mbedtls_entropy_func, &tlsctx->entropy,
+                                    (const unsigned char *)seedbuffer, strlen (seedbuffer))) != 0)
   {
-    lprintf (0, "[%s] mbedtls_ctr_drbg_seed() returned %d (-0x%x)", cinfo->hostname, ret, (unsigned int)-ret);
+    lprintf (0, "[%s] mbedtls_ctr_drbg_seed() returned %d (-0x%x)", cinfo->hostname, ret,
+             (unsigned int)-ret);
     return -1;
   }
 
@@ -142,21 +142,22 @@ TLSConfigure (ClientInfo *cinfo)
 
   if ((ret = mbedtls_x509_crt_parse_file (&tlsctx->srvcert, tlscertfile)) != 0)
   {
-    lprintf (0, "[%s] mbedtls_x509_crt_parse_file() returned %d (-0x%x)", cinfo->hostname, ret, (unsigned int)-ret);
+    lprintf (0, "[%s] mbedtls_x509_crt_parse_file() returned %d (-0x%x)", cinfo->hostname, ret,
+             (unsigned int)-ret);
     return -1;
   }
 
   lprintf (2, "[%s] Reading TLS key from '%s'", cinfo->hostname, tlskeyfile);
 
-  if ((ret = mbedtls_pk_parse_keyfile (&tlsctx->pkey, tlskeyfile, "",
-                                       mbedtls_ctr_drbg_random, &tlsctx->ctr_drbg)) != 0)
+  if ((ret = mbedtls_pk_parse_keyfile (&tlsctx->pkey, tlskeyfile, "", mbedtls_ctr_drbg_random,
+                                       &tlsctx->ctr_drbg)) != 0)
   {
-    lprintf (0, "[%s] mbedtls_pk_parse_keyfile() returned %d (-0x%x)", cinfo->hostname, ret, (unsigned int)-ret);
+    lprintf (0, "[%s] mbedtls_pk_parse_keyfile() returned %d (-0x%x)", cinfo->hostname, ret,
+             (unsigned int)-ret);
     return -1;
   }
 
-  if ((ret = mbedtls_ssl_config_defaults (&tlsctx->conf,
-                                          MBEDTLS_SSL_IS_SERVER,
+  if ((ret = mbedtls_ssl_config_defaults (&tlsctx->conf, MBEDTLS_SSL_IS_SERVER,
                                           MBEDTLS_SSL_TRANSPORT_STREAM,
                                           MBEDTLS_SSL_PRESET_DEFAULT)) != 0)
   {
@@ -164,9 +165,8 @@ TLSConfigure (ClientInfo *cinfo)
     return -1;
   }
 
-  mbedtls_ssl_conf_authmode (&tlsctx->conf,
-                             config.tlsverifyclientcert ? MBEDTLS_SSL_VERIFY_OPTIONAL
-                                                       : MBEDTLS_SSL_VERIFY_NONE);
+  mbedtls_ssl_conf_authmode (&tlsctx->conf, config.tlsverifyclientcert ? MBEDTLS_SSL_VERIFY_OPTIONAL
+                                                                       : MBEDTLS_SSL_VERIFY_NONE);
   mbedtls_ssl_conf_rng (&tlsctx->conf, mbedtls_ctr_drbg_random, &tlsctx->ctr_drbg);
   mbedtls_ssl_conf_dbg (&tlsctx->conf, tls_debug, NULL);
 
@@ -184,8 +184,7 @@ TLSConfigure (ClientInfo *cinfo)
     return -1;
   }
 
-  mbedtls_ssl_set_bio (&tlsctx->ssl, &tlsctx->client_fd,
-                       mbedtls_net_send, mbedtls_net_recv, NULL);
+  mbedtls_ssl_set_bio (&tlsctx->ssl, &tlsctx->client_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
 
   lprintf (2, "[%s] Starting TLS handshake", cinfo->hostname);
 
@@ -193,18 +192,17 @@ TLSConfigure (ClientInfo *cinfo)
    * a slow-handshake DoS cannot pin a thread for longer than any other
    * idle client. Fall back to TLS_HANDSHAKE_TIMEOUT_MAX when the
    * operator has disabled netiotimeout. */
-  time_t handshake_start   = time (NULL);
-  time_t handshake_timeout = (config.netiotimeout > 0)
-                                 ? (time_t)config.netiotimeout
-                                 : TLS_HANDSHAKE_TIMEOUT_MAX;
+  time_t handshake_start = time (NULL);
+  time_t handshake_timeout =
+      (config.netiotimeout > 0) ? (time_t)config.netiotimeout : TLS_HANDSHAKE_TIMEOUT_MAX;
 
   while ((ret = mbedtls_ssl_handshake (&tlsctx->ssl)) != 0)
   {
-    if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
-        ret != MBEDTLS_ERR_SSL_WANT_WRITE &&
+    if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE &&
         ret != MBEDTLS_ERR_SSL_CRYPTO_IN_PROGRESS)
     {
-      lprintf (0, "[%s] mbedtls_ssl_handshake() returned -0x%x", cinfo->hostname, (unsigned int)-ret);
+      lprintf (0, "[%s] mbedtls_ssl_handshake() returned -0x%x", cinfo->hostname,
+               (unsigned int)-ret);
       return -1;
     }
 
@@ -216,8 +214,8 @@ TLSConfigure (ClientInfo *cinfo)
 
     if (time (NULL) - handshake_start > handshake_timeout)
     {
-      lprintf (0, "[%s] TLS handshake timed out after %ld seconds",
-               cinfo->hostname, (long)handshake_timeout);
+      lprintf (0, "[%s] TLS handshake timed out after %ld seconds", cinfo->hostname,
+               (long)handshake_timeout);
       return -1;
     }
 
@@ -240,7 +238,8 @@ TLSConfigure (ClientInfo *cinfo)
       mbedtls_x509_crt_verify_info (vrfy_buf, sizeof (vrfy_buf), "  ! ", flags);
       lprintf (0, "[%s] VERIFY INFO: %s", cinfo->hostname, vrfy_buf);
 
-      lprintf (0, "[%s] Connection refused due to client certificate verification failure", cinfo->hostname);
+      lprintf (0, "[%s] Connection refused due to client certificate verification failure",
+               cinfo->hostname);
 
       return -1;
     }

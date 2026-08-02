@@ -23,35 +23,36 @@
 #define RINGSERVER_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-#include <pthread.h>
-#include <stdatomic.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
-#define PACKAGE   "ringserver"
-#define VERSION   "4.5.4"
+#define PACKAGE "ringserver"
+#define VERSION "4.5.4"
 
 /* Listen thread protocols, defined before including clients.h to avoid circular include */
 typedef enum
 {
   PROTO_DATALINK = 1u << 1,
   PROTO_SEEDLINK = 1u << 2,
-  PROTO_HTTP     = 1u << 3,
-  PROTO_ALL      = PROTO_DATALINK | PROTO_SEEDLINK | PROTO_HTTP
+  PROTO_HTTP = 1u << 3,
+  PROTO_ALL = PROTO_DATALINK | PROTO_SEEDLINK | PROTO_HTTP
 } ListenProtocols;
 
 /* Listen thread options */
 typedef enum
 {
-  ENCRYPTION_TLS    = 1u << 1,
-  FAMILY_IPv4       = 1u << 2,
-  FAMILY_IPv6       = 1u << 3,
+  ENCRYPTION_TLS = 1u << 1,
+  FAMILY_IPv4 = 1u << 2,
+  FAMILY_IPv6 = 1u << 3,
   PROXY_PROTOCOL_V2 = 1u << 4,
-  GRANT_TRUSTED     = 1u << 5,
+  GRANT_TRUSTED = 1u << 5,
 } ListenOptions;
 
 #include "clients.h"
@@ -71,7 +72,7 @@ struct thread_data
 {
   pthread_t td_id;
   _Atomic ThreadState td_state;
-  void * td_prvtptr;
+  void *td_prvtptr;
 };
 
 /* Server thread types */
@@ -86,7 +87,7 @@ struct sthread
 {
   struct thread_data *td;
   ServerThreadType type;
-  void           *params;
+  void *params;
   struct sthread *prev;
   struct sthread *next;
 };
@@ -138,27 +139,27 @@ typedef struct IPNet_s
 /* Usage log modes */
 typedef enum
 {
-  USAGELOG_NONE   = 0,
-  USAGELOG_JSONL  = 1 << 0, /* Write JSON Lines format for transfer logs */
-  USAGELOG_RX     = 1 << 1, /* Write transfer log for data received from clients */
-  USAGELOG_TX     = 1 << 2, /* Write transfer log for data transmitted to clients */
-  USAGELOG_ACCESS = 1 << 3  /* Write access log for connections and key commands */
+  USAGELOG_NONE = 0,
+  USAGELOG_JSONL = 1 << 0, /* Write JSON Lines format for transfer logs */
+  USAGELOG_RX = 1 << 1,    /* Write transfer log for data received from clients */
+  USAGELOG_TX = 1 << 2,    /* Write transfer log for data transmitted to clients */
+  USAGELOG_ACCESS = 1 << 3 /* Write access log for connections and key commands */
 } UsageLogMode;
 
 /* Global server parameters */
 struct param_s
 {
-  pthread_mutex_t ringlock;        /* Mutex lock for ring write access */
-  uint8_t *ringbuffer;             /* Pointer to ring buffer */
-  uint8_t *datastart;              /* Pointer to start of ring buffer data packets */
-  uint16_t version;                /* RING_VERSION */
-  uint64_t ringsize;               /* Ring size in bytes */
-  uint32_t pktsize;                /* Packet size in bytes */
-  uint64_t maxpackets;             /* Maximum number of packets */
-  int64_t maxoffset;               /* Maximum packet offset */
-  uint32_t headersize;             /* Size of ring header */
-  _Atomic int64_t earliestoffset;  /* Earliest packet offset in bytes */
-  _Atomic int64_t latestoffset;    /* Latest packet offset in bytes */
+  pthread_mutex_t ringlock;       /* Mutex lock for ring write access */
+  uint8_t *ringbuffer;            /* Pointer to ring buffer */
+  uint8_t *datastart;             /* Pointer to start of ring buffer data packets */
+  uint16_t version;               /* RING_VERSION */
+  uint64_t ringsize;              /* Ring size in bytes */
+  uint32_t pktsize;               /* Packet size in bytes */
+  uint64_t maxpackets;            /* Maximum number of packets */
+  int64_t maxoffset;              /* Maximum packet offset */
+  uint32_t headersize;            /* Size of ring header */
+  _Atomic int64_t earliestoffset; /* Earliest packet offset in bytes */
+  _Atomic int64_t latestoffset;   /* Latest packet offset in bytes */
 
   pthread_mutex_t streamlock;   /* Mutex lock for stream index */
   RBTree *streamidx;            /* Binary tree of streams */
@@ -183,38 +184,41 @@ extern struct param_s param;
 /* Configuration parameters */
 struct config_s
 {
-  pthread_rwlock_t config_rwlock; /* Read-write lock for all parameters */
-  _Atomic int verbose;            /* Verbosity level */
-  char *configfile;               /* Configuration file */
-  char *serverid;                 /* Server ID */
-  char *ringdir;                  /* Directory for ring files */
-  uint64_t ringsize;              /* Size of ring buffer file */
-  uint32_t pktsize;               /* Ring packet size */
-  _Atomic uint32_t maxclients;    /* Enforce maximum number of clients */
+  pthread_rwlock_t config_rwlock;   /* Read-write lock for all parameters */
+  _Atomic int verbose;              /* Verbosity level */
+  char *configfile;                 /* Configuration file */
+  char *serverid;                   /* Server ID */
+  char *ringdir;                    /* Directory for ring files */
+  uint64_t ringsize;                /* Size of ring buffer file */
+  uint32_t pktsize;                 /* Ring packet size */
+  _Atomic uint32_t maxclients;      /* Enforce maximum number of clients */
   _Atomic uint32_t maxclientsperip; /* Enforce maximum number of clients per IP */
-  _Atomic uint32_t infocachettl;  /* TTL in seconds for cached INFO stream/station responses, 0 disables */
-  _Atomic uint32_t clienttimeout; /* Idle client threshold in seconds, then disconnect */
-  _Atomic uint32_t netiotimeout;  /* Network I/O timeout in seconds, then disconnect */
-  _Atomic uint32_t tcpkeepalive_idle;     /* TCP keepalive idle seconds before probing, 0 disables */
-  _Atomic uint32_t tcpkeepalive_interval; /* TCP keepalive probe interval seconds (platform-dependent) */
-  _Atomic uint32_t tcpkeepalive_count;    /* TCP keepalive probe count before disconnect (platform-dependent) */
-  _Atomic float timewinlimit;     /* Time window search limit in percent */
-  _Atomic uint8_t resolvehosts;   /* Flag to control resolving of client hostnames */
-  uint8_t memorymapring;          /* Flag to control mmap'ing of packet buffer */
-  uint8_t volatilering;           /* Flag to control if ring is volatile or not */
-  uint8_t autorecovery;           /* Flag to control auto recovery from corruption */
-  char *webroot;                  /* Web content root directory */
-  char *httpheaders;              /* HTTP headers to include in each HTTP response */
-  char *mseedarchive;             /* miniSEED archive definition */
-  int mseedidleto;                /* miniSEED idle file timeout */
-  IPNet *allowedips;              /* List of allow-streams-by-IP entries */
-  IPNet *forbiddenips;            /* List of forbid-streams-by-IP entries */
-  IPNet *acceptips;               /* List of IPs allowed to connect */
-  IPNet *denyips;                 /* List of IPs not allowed to connect */
-  IPNet *writeips;                /* List of IPs allowed to submit data */
-  IPNet *trustedips;              /* List of IPs to trust */
-  char *tlscertfile;              /* TLS certificate file */
-  char *tlskeyfile;               /* TLS key file */
+  _Atomic uint32_t
+      infocachettl; /* TTL in seconds for cached INFO stream/station responses, 0 disables */
+  _Atomic uint32_t clienttimeout;     /* Idle client threshold in seconds, then disconnect */
+  _Atomic uint32_t netiotimeout;      /* Network I/O timeout in seconds, then disconnect */
+  _Atomic uint32_t tcpkeepalive_idle; /* TCP keepalive idle seconds before probing, 0 disables */
+  _Atomic uint32_t
+      tcpkeepalive_interval; /* TCP keepalive probe interval seconds (platform-dependent) */
+  _Atomic uint32_t
+      tcpkeepalive_count;     /* TCP keepalive probe count before disconnect (platform-dependent) */
+  _Atomic float timewinlimit; /* Time window search limit in percent */
+  _Atomic uint8_t resolvehosts;    /* Flag to control resolving of client hostnames */
+  uint8_t memorymapring;           /* Flag to control mmap'ing of packet buffer */
+  uint8_t volatilering;            /* Flag to control if ring is volatile or not */
+  uint8_t autorecovery;            /* Flag to control auto recovery from corruption */
+  char *webroot;                   /* Web content root directory */
+  char *httpheaders;               /* HTTP headers to include in each HTTP response */
+  char *mseedarchive;              /* miniSEED archive definition */
+  int mseedidleto;                 /* miniSEED idle file timeout */
+  IPNet *allowedips;               /* List of allow-streams-by-IP entries */
+  IPNet *forbiddenips;             /* List of forbid-streams-by-IP entries */
+  IPNet *acceptips;                /* List of IPs allowed to connect */
+  IPNet *denyips;                  /* List of IPs not allowed to connect */
+  IPNet *writeips;                 /* List of IPs allowed to submit data */
+  IPNet *trustedips;               /* List of IPs to trust */
+  char *tlscertfile;               /* TLS certificate file */
+  char *tlskeyfile;                /* TLS key file */
   _Atomic int tlsverifyclientcert; /* Verify client certificate */
   struct auth
   {
@@ -225,23 +229,23 @@ struct config_s
   } auth;
   struct usagelog
   {
-    pthread_mutex_t write_lock;     /* Lock for writing usage log files */
-    _Atomic UsageLogMode mode;      /* Usage log mode flags */
-    char *basedir;                  /* Usage log base directory */
-    char *prefix;                   /* Usage log file prefix */
-    int interval;                   /* Usage log writing interval in seconds */
-    _Atomic time_t startint;        /* Normalized start time */
-    _Atomic time_t endint;          /* Usage log interval end time */
-    char txlog_filename[512];       /* Rendered TX log path for current interval */
-    char rxlog_filename[512];       /* Rendered RX log path for current interval */
-    char accesslog_filename[512];   /* Rendered access log path for current interval */
+    pthread_mutex_t write_lock;   /* Lock for writing usage log files */
+    _Atomic UsageLogMode mode;    /* Usage log mode flags */
+    char *basedir;                /* Usage log base directory */
+    char *prefix;                 /* Usage log file prefix */
+    int interval;                 /* Usage log writing interval in seconds */
+    _Atomic time_t startint;      /* Normalized start time */
+    _Atomic time_t endint;        /* Usage log interval end time */
+    char txlog_filename[512];     /* Rendered TX log path for current interval */
+    char rxlog_filename[512];     /* Rendered RX log path for current interval */
+    char accesslog_filename[512]; /* Rendered access log path for current interval */
   } usagelog;
 };
 
 extern struct config_s config;
 
-extern int GenProtocolString (ListenProtocols protocols, ListenOptions options,
-                              char *result, size_t maxlength);
+extern int GenProtocolString (ListenProtocols protocols, ListenOptions options, char *result,
+                              size_t maxlength);
 
 #ifdef __cplusplus
 }

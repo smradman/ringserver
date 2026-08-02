@@ -60,9 +60,9 @@ lprintf (int level, char *fmt, ...)
   struct tm tp;
   time_t curtime;
 
-  const char *day[]   = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-  const char *month[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
-                         "Aug", "Sep", "Oct", "Nov", "Dec"};
+  const char *day[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+  const char *month[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
   if (level <= config.verbose)
   {
@@ -79,10 +79,9 @@ lprintf (int level, char *fmt, ...)
     int truncated = (rv < 0) || ((size_t)rv >= sizeof (message));
 
     pthread_mutex_lock (&log_mutex);
-    printf ("%3.3s %3.3s %2.2d %2.2d:%2.2d:%2.2d %4.4d - %s%s\n",
-            day[tp.tm_wday], month[tp.tm_mon], tp.tm_mday,
-            tp.tm_hour, tp.tm_min, tp.tm_sec, tp.tm_year + 1900,
-            message, truncated ? " ..." : "");
+    printf ("%3.3s %3.3s %2.2d %2.2d:%2.2d:%2.2d %4.4d - %s%s\n", day[tp.tm_wday], month[tp.tm_mon],
+            tp.tm_mday, tp.tm_hour, tp.tm_min, tp.tm_sec, tp.tm_year + 1900, message,
+            truncated ? " ..." : "");
 
     fflush (stdout);
     pthread_mutex_unlock (&log_mutex);
@@ -148,12 +147,12 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
 
   const char *txfilename = NULL;
   const char *rxfilename = NULL;
-  char conntime[32]      = {0};
-  char currtime[32]      = {0};
-  char logstarttime[32]  = {0};
-  char *modestr          = "";
-  FILE *txfp             = NULL;
-  FILE *rxfp             = NULL;
+  char conntime[32] = {0};
+  char currtime[32] = {0};
+  char logstarttime[32] = {0};
+  char *modestr = "";
+  FILE *txfp = NULL;
+  FILE *rxfp = NULL;
 
   /* Quick atomic check: skip all work if transfer logging is not enabled */
   if (!(config.usagelog.mode & (USAGELOG_TX | USAGELOG_RX)))
@@ -165,20 +164,19 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
 
   /* Convert server port from string to integer */
   char *endptr = NULL;
-  long parsed  = strtol (cinfo->serverport, &endptr, 10);
-  server_port  = (endptr != cinfo->serverport && *endptr == '\0' &&
-                  parsed >= 0 && parsed <= 65535)
-                     ? (int)parsed
-                     : 0;
+  long parsed = strtol (cinfo->serverport, &endptr, 10);
+  server_port = (endptr != cinfo->serverport && *endptr == '\0' && parsed >= 0 && parsed <= 65535)
+                    ? (int)parsed
+                    : 0;
 
   /* Lock usage log file writing mutex */
   pthread_mutex_lock (&config.usagelog.write_lock);
 
   /* Reference cached filenames directly; they are stable while we hold the lock */
-  txfilename    = config.usagelog.txlog_filename;
-  rxfilename    = config.usagelog.rxlog_filename;
+  txfilename = config.usagelog.txlog_filename;
+  rxfilename = config.usagelog.rxlog_filename;
   tlog_startint = config.usagelog.startint;
-  jsonlmode     = (config.usagelog.mode & USAGELOG_JSONL) ? 1 : 0;
+  jsonlmode = (config.usagelog.mode & USAGELOG_JSONL) ? 1 : 0;
 
   /* Nothing to log if both filenames are empty (logging not configured) */
   if (!txfilename[0] && !rxfilename[0])
@@ -189,7 +187,7 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
 
   /* Compute log start time: later of interval start or client connect time */
   nstime_t intervalstart_ns = (nstime_t)tlog_startint * NSTMODULUS;
-  nstime_t logstart         = (cinfo->conntime > intervalstart_ns) ? cinfo->conntime : intervalstart_ns;
+  nstime_t logstart = (cinfo->conntime > intervalstart_ns) ? cinfo->conntime : intervalstart_ns;
   ms_nstime2timestr_n (logstart, logstarttime, sizeof (logstarttime), ISOMONTHDAY_Z, NONE);
 
   /* Open TX log file and seek to end */
@@ -197,14 +195,13 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
   {
     if ((txfp = fopen (txfilename, "a")) == NULL)
     {
-      lprintf (0, "Error opening TX transfer log file %s: %s",
-               txfilename, strerror (errno));
+      lprintf (0, "Error opening TX transfer log file %s: %s", txfilename, strerror (errno));
       rv = -1;
     }
     else if (fseek (txfp, 0, SEEK_END))
     {
-      lprintf (0, "Error seeking to end of TX transfer log file %s: %s",
-               txfilename, strerror (errno));
+      lprintf (0, "Error seeking to end of TX transfer log file %s: %s", txfilename,
+               strerror (errno));
       rv = -1;
     }
   }
@@ -214,14 +211,13 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
   {
     if ((rxfp = fopen (rxfilename, "a")) == NULL)
     {
-      lprintf (0, "Error opening RX transfer log file %s: %s",
-               rxfilename, strerror (errno));
+      lprintf (0, "Error opening RX transfer log file %s: %s", rxfilename, strerror (errno));
       rv = -1;
     }
     else if (fseek (rxfp, 0, SEEK_END))
     {
-      lprintf (0, "Error seeking to end of RX transfer log file %s: %s",
-               rxfilename, strerror (errno));
+      lprintf (0, "Error seeking to end of RX transfer log file %s: %s", rxfilename,
+               strerror (errno));
       rv = -1;
     }
   }
@@ -247,13 +243,12 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
       if (cinfo->type == CLIENT_SEEDLINK && cinfo->extinfo)
       {
         SLInfo *slinfo = (SLInfo *)cinfo->extinfo;
-        snprintf (protoversion, sizeof (protoversion), "%u.%u",
-                  slinfo->proto_major, slinfo->proto_minor);
+        snprintf (protoversion, sizeof (protoversion), "%u.%u", slinfo->proto_major,
+                  slinfo->proto_minor);
       }
       else if (cinfo->type == CLIENT_DATALINK)
       {
-        snprintf (protoversion, sizeof (protoversion), "%u.%u",
-                  DLPROTO_MAJOR, DLPROTO_MINOR);
+        snprintf (protoversion, sizeof (protoversion), "%u.%u", DLPROTO_MAJOR, DLPROTO_MINOR);
       }
 
       /* Lock stream tree and build list (Stack) of streams */
@@ -264,8 +259,8 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
         RBBuildStack (cinfo->streams, stack);
 
       /* Build TX JSON document */
-      yyjson_mut_doc *txdoc     = NULL;
-      yyjson_mut_doc *rxdoc     = NULL;
+      yyjson_mut_doc *txdoc = NULL;
+      yyjson_mut_doc *rxdoc = NULL;
       yyjson_mut_val *txstreams = NULL;
       yyjson_mut_val *rxstreams = NULL;
 
@@ -293,7 +288,7 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
             const char *authmethodstr = (cinfo->auth_method == AUTH_JWT)        ? "jwt"
                                         : (cinfo->auth_method == AUTH_USERPASS) ? "userpass"
                                                                                 : "unknown";
-            yyjson_mut_val *auth      = yyjson_mut_obj_add_obj (txdoc, root, "auth");
+            yyjson_mut_val *auth = yyjson_mut_obj_add_obj (txdoc, root, "auth");
             yyjson_mut_obj_add_str (txdoc, auth, "method", authmethodstr);
             if (cinfo->auth_username[0])
               yyjson_mut_obj_add_strcpy (txdoc, auth, "username", cinfo->auth_username);
@@ -346,7 +341,7 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
             const char *authmethodstr = (cinfo->auth_method == AUTH_JWT)        ? "jwt"
                                         : (cinfo->auth_method == AUTH_USERPASS) ? "userpass"
                                                                                 : "unknown";
-            yyjson_mut_val *auth      = yyjson_mut_obj_add_obj (rxdoc, root, "auth");
+            yyjson_mut_val *auth = yyjson_mut_obj_add_obj (rxdoc, root, "auth");
             yyjson_mut_obj_add_str (rxdoc, auth, "method", authmethodstr);
             if (cinfo->auth_username[0])
               yyjson_mut_obj_add_strcpy (rxdoc, auth, "username", cinfo->auth_username);
@@ -385,8 +380,8 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
          * unconfigured log path must not silently drop counts. */
         if (txfp && txdoc && txstreams)
         {
-          uint64_t txbytes   = reset ? atomic_exchange (&streamnode->txbytes, 0)
-                                     : atomic_load (&streamnode->txbytes);
+          uint64_t txbytes = reset ? atomic_exchange (&streamnode->txbytes, 0)
+                                   : atomic_load (&streamnode->txbytes);
           uint64_t txpackets = reset ? atomic_exchange (&streamnode->txpackets, 0)
                                      : atomic_load (&streamnode->txpackets);
 
@@ -403,8 +398,8 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
 
         if (rxfp && rxdoc && rxstreams)
         {
-          uint64_t rxbytes   = reset ? atomic_exchange (&streamnode->rxbytes, 0)
-                                     : atomic_load (&streamnode->rxbytes);
+          uint64_t rxbytes = reset ? atomic_exchange (&streamnode->rxbytes, 0)
+                                   : atomic_load (&streamnode->rxbytes);
           uint64_t rxpackets = reset ? atomic_exchange (&streamnode->rxpackets, 0)
                                      : atomic_load (&streamnode->rxpackets);
 
@@ -464,14 +459,14 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
 
       /* Buffer stream lines in memory, then emit header+lines+footer only if
          there were transfers in the respective direction */
-      char *txbuf   = NULL;
-      char *rxbuf   = NULL;
+      char *txbuf = NULL;
+      char *rxbuf = NULL;
       size_t txsize = 0;
       size_t rxsize = 0;
-      FILE *txmem   = (txfp) ? open_memstream (&txbuf, &txsize) : NULL;
-      FILE *rxmem   = (rxfp) ? open_memstream (&rxbuf, &rxsize) : NULL;
-      int txok      = (!txfp || txmem != NULL);
-      int rxok      = (!rxfp || rxmem != NULL);
+      FILE *txmem = (txfp) ? open_memstream (&txbuf, &txsize) : NULL;
+      FILE *rxmem = (rxfp) ? open_memstream (&rxbuf, &rxsize) : NULL;
+      int txok = (!txfp || txmem != NULL);
+      int rxok = (!rxfp || rxmem != NULL);
 
       if (txfp && !txmem)
       {
@@ -503,15 +498,15 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
          * the writer paths that actually report them. */
         if (txmem)
         {
-          uint64_t txbytes   = reset ? atomic_exchange (&streamnode->txbytes, 0)
-                                     : atomic_load (&streamnode->txbytes);
+          uint64_t txbytes = reset ? atomic_exchange (&streamnode->txbytes, 0)
+                                   : atomic_load (&streamnode->txbytes);
           uint64_t txpackets = reset ? atomic_exchange (&streamnode->txpackets, 0)
                                      : atomic_load (&streamnode->txpackets);
 
           if (txbytes > 0)
           {
-            fprintf (txmem, "%s %" PRIu64 " %" PRIu64 "\n", streamnode->streamid,
-                     txbytes, txpackets);
+            fprintf (txmem, "%s %" PRIu64 " %" PRIu64 "\n", streamnode->streamid, txbytes,
+                     txpackets);
 
             txtotalbytes += txbytes;
           }
@@ -519,15 +514,15 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
 
         if (rxmem)
         {
-          uint64_t rxbytes   = reset ? atomic_exchange (&streamnode->rxbytes, 0)
-                                     : atomic_load (&streamnode->rxbytes);
+          uint64_t rxbytes = reset ? atomic_exchange (&streamnode->rxbytes, 0)
+                                   : atomic_load (&streamnode->rxbytes);
           uint64_t rxpackets = reset ? atomic_exchange (&streamnode->rxpackets, 0)
                                      : atomic_load (&streamnode->rxpackets);
 
           if (rxbytes > 0)
           {
-            fprintf (rxmem, "%s %" PRIu64 " %" PRIu64 "\n", streamnode->streamid,
-                     rxbytes, rxpackets);
+            fprintf (rxmem, "%s %" PRIu64 " %" PRIu64 "\n", streamnode->streamid, rxbytes,
+                     rxpackets);
 
             rxtotalbytes += rxbytes;
           }
@@ -546,8 +541,8 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
         {
           if (txok)
           {
-            lprintf (0, "Error finalising TX transfer log buffer for %s [%s]",
-                     cinfo->hostname, cinfo->ipstr);
+            lprintf (0, "Error finalising TX transfer log buffer for %s [%s]", cinfo->hostname,
+                     cinfo->ipstr);
             rv = -1;
           }
           txok = 0;
@@ -559,8 +554,8 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
         {
           if (rxok)
           {
-            lprintf (0, "Error finalising RX transfer log buffer for %s [%s]",
-                     cinfo->hostname, cinfo->ipstr);
+            lprintf (0, "Error finalising RX transfer log buffer for %s [%s]", cinfo->hostname,
+                     cinfo->ipstr);
             rv = -1;
           }
           rxok = 0;
@@ -570,27 +565,25 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
       /* Emit TX block only if there were bytes and the buffer is valid */
       if (txok && txfp && txtotalbytes > 0)
       {
-        fprintf (txfp, "START CLIENT %s [%s] (%s|%s) @ %s (connected %s) TX\n",
-                 cinfo->hostname, cinfo->ipstr, modestr,
-                 cinfo->clientid[0] ? cinfo->clientid : "Client",
-                 currtime, conntime);
+        fprintf (txfp, "START CLIENT %s [%s] (%s|%s) @ %s (connected %s) TX\n", cinfo->hostname,
+                 cinfo->ipstr, modestr, cinfo->clientid[0] ? cinfo->clientid : "Client", currtime,
+                 conntime);
         if (txbuf)
           fwrite (txbuf, 1, txsize, txfp);
-        fprintf (txfp, "END CLIENT %s [%s] total TX bytes: %" PRIu64 "\n",
-                 cinfo->hostname, cinfo->ipstr, txtotalbytes);
+        fprintf (txfp, "END CLIENT %s [%s] total TX bytes: %" PRIu64 "\n", cinfo->hostname,
+                 cinfo->ipstr, txtotalbytes);
       }
 
       /* Emit RX block only if there were bytes and the buffer is valid */
       if (rxok && rxfp && rxtotalbytes > 0)
       {
-        fprintf (rxfp, "START CLIENT %s [%s] (%s|%s) @ %s (connected %s) RX\n",
-                 cinfo->hostname, cinfo->ipstr, modestr,
-                 cinfo->clientid[0] ? cinfo->clientid : "Client",
-                 currtime, conntime);
+        fprintf (rxfp, "START CLIENT %s [%s] (%s|%s) @ %s (connected %s) RX\n", cinfo->hostname,
+                 cinfo->ipstr, modestr, cinfo->clientid[0] ? cinfo->clientid : "Client", currtime,
+                 conntime);
         if (rxbuf)
           fwrite (rxbuf, 1, rxsize, rxfp);
-        fprintf (rxfp, "END CLIENT %s [%s] total RX bytes: %" PRIu64 "\n",
-                 cinfo->hostname, cinfo->ipstr, rxtotalbytes);
+        fprintf (rxfp, "END CLIENT %s [%s] total RX bytes: %" PRIu64 "\n", cinfo->hostname,
+                 cinfo->ipstr, rxtotalbytes);
       }
 
       free (txbuf);
@@ -600,14 +593,12 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
 
   if (txfp && fclose (txfp))
   {
-    lprintf (0, "Error closing TX transfer log file %s: %s",
-             txfilename, strerror (errno));
+    lprintf (0, "Error closing TX transfer log file %s: %s", txfilename, strerror (errno));
     rv = -1;
   }
   if (rxfp && fclose (rxfp))
   {
-    lprintf (0, "Error closing RX transfer log file %s: %s",
-             rxfilename, strerror (errno));
+    lprintf (0, "Error closing RX transfer log file %s: %s", rxfilename, strerror (errno));
     rv = -1;
   }
 
@@ -632,16 +623,15 @@ WriteTransferLog (ClientInfo *cinfo, int reset)
  * Returns 0 on success and -1 on error.
  ***************************************************************************/
 int
-WriteAccessLog (ClientInfo *cinfo, const char *event,
-                const char *command, const char *detail,
+WriteAccessLog (ClientInfo *cinfo, const char *event, const char *command, const char *detail,
                 const char *match, const char *reject)
 {
   const char *filename = NULL;
-  char currtime[32]    = {0};
-  char conntime[32]    = {0};
+  char currtime[32] = {0};
+  char conntime[32] = {0};
   int server_port;
   FILE *fp = NULL;
-  int rv   = 0;
+  int rv = 0;
 
   if (!cinfo || !event)
     return -1;
@@ -657,14 +647,13 @@ WriteAccessLog (ClientInfo *cinfo, const char *event,
 
   /* Convert server port from string to integer with full validation */
   char *endptr = NULL;
-  long parsed  = strtol (cinfo->serverport, &endptr, 10);
-  server_port  = (endptr != cinfo->serverport && *endptr == '\0' &&
-                  parsed >= 0 && parsed <= 65535)
-                     ? (int)parsed
-                     : 0;
+  long parsed = strtol (cinfo->serverport, &endptr, 10);
+  server_port = (endptr != cinfo->serverport && *endptr == '\0' && parsed >= 0 && parsed <= 65535)
+                    ? (int)parsed
+                    : 0;
 
   /* Determine protocol name and version strings */
-  const char *modestr   = "Unknown";
+  const char *modestr = "Unknown";
   char protoversion[16] = {0};
 
   if (cinfo->type == CLIENT_DATALINK)
@@ -678,8 +667,8 @@ WriteAccessLog (ClientInfo *cinfo, const char *event,
     if (cinfo->extinfo)
     {
       SLInfo *slinfo = (SLInfo *)cinfo->extinfo;
-      snprintf (protoversion, sizeof (protoversion), "%u.%u",
-                slinfo->proto_major, slinfo->proto_minor);
+      snprintf (protoversion, sizeof (protoversion), "%u.%u", slinfo->proto_major,
+                slinfo->proto_minor);
     }
   }
   else if (cinfo->type == CLIENT_HTTP)
@@ -710,7 +699,7 @@ WriteAccessLog (ClientInfo *cinfo, const char *event,
     const char *authmethodstr = (cinfo->auth_method == AUTH_JWT)        ? "jwt"
                                 : (cinfo->auth_method == AUTH_USERPASS) ? "userpass"
                                                                         : "unknown";
-    yyjson_mut_val *auth      = yyjson_mut_obj_add_obj (doc, root, "auth");
+    yyjson_mut_val *auth = yyjson_mut_obj_add_obj (doc, root, "auth");
     yyjson_mut_obj_add_str (doc, auth, "method", authmethodstr);
     if (cinfo->auth_username[0])
       yyjson_mut_obj_add_strcpy (doc, auth, "username", cinfo->auth_username);
@@ -811,15 +800,15 @@ RenderUsageLogFilenames (void)
 
   if (!config.usagelog.basedir)
   {
-    config.usagelog.txlog_filename[0]     = '\0';
-    config.usagelog.rxlog_filename[0]     = '\0';
+    config.usagelog.txlog_filename[0] = '\0';
+    config.usagelog.rxlog_filename[0] = '\0';
     config.usagelog.accesslog_filename[0] = '\0';
     return;
   }
 
   jsonlmode = (config.usagelog.mode & USAGELOG_JSONL) ? 1 : 0;
-  startint  = config.usagelog.startint;
-  endint    = config.usagelog.endint;
+  startint = config.usagelog.startint;
+  endint = config.usagelog.endint;
 
   localtime_r (&startint, &starttm);
   localtime_r (&endint, &endtm);
@@ -828,18 +817,17 @@ RenderUsageLogFilenames (void)
   {
     rv = snprintf (config.usagelog.txlog_filename, sizeof (config.usagelog.txlog_filename),
                    "%s/%s%stxlog-%04d%02d%02dT%02d%02d-%04d%02d%02dT%02d%02d%s",
-                   config.usagelog.basedir,
-                   (config.usagelog.prefix) ? config.usagelog.prefix : "",
-                   (config.usagelog.prefix) ? "-" : "",
-                   starttm.tm_year + 1900, starttm.tm_mon + 1, starttm.tm_mday,
-                   starttm.tm_hour, starttm.tm_min,
-                   endtm.tm_year + 1900, endtm.tm_mon + 1, endtm.tm_mday,
-                   endtm.tm_hour, endtm.tm_min,
+                   config.usagelog.basedir, (config.usagelog.prefix) ? config.usagelog.prefix : "",
+                   (config.usagelog.prefix) ? "-" : "", starttm.tm_year + 1900, starttm.tm_mon + 1,
+                   starttm.tm_mday, starttm.tm_hour, starttm.tm_min, endtm.tm_year + 1900,
+                   endtm.tm_mon + 1, endtm.tm_mday, endtm.tm_hour, endtm.tm_min,
                    jsonlmode ? ".jsonl" : "");
     if (rv < 0 || (size_t)rv >= sizeof (config.usagelog.txlog_filename))
     {
-      lprintf (0, "%s(): txlog filename truncated (basedir/prefix too long), disabling for this interval",
-               __func__);
+      lprintf (
+          0,
+          "%s(): txlog filename truncated (basedir/prefix too long), disabling for this interval",
+          __func__);
       config.usagelog.txlog_filename[0] = '\0';
     }
   }
@@ -852,18 +840,17 @@ RenderUsageLogFilenames (void)
   {
     rv = snprintf (config.usagelog.rxlog_filename, sizeof (config.usagelog.rxlog_filename),
                    "%s/%s%srxlog-%04d%02d%02dT%02d%02d-%04d%02d%02dT%02d%02d%s",
-                   config.usagelog.basedir,
-                   (config.usagelog.prefix) ? config.usagelog.prefix : "",
-                   (config.usagelog.prefix) ? "-" : "",
-                   starttm.tm_year + 1900, starttm.tm_mon + 1, starttm.tm_mday,
-                   starttm.tm_hour, starttm.tm_min,
-                   endtm.tm_year + 1900, endtm.tm_mon + 1, endtm.tm_mday,
-                   endtm.tm_hour, endtm.tm_min,
+                   config.usagelog.basedir, (config.usagelog.prefix) ? config.usagelog.prefix : "",
+                   (config.usagelog.prefix) ? "-" : "", starttm.tm_year + 1900, starttm.tm_mon + 1,
+                   starttm.tm_mday, starttm.tm_hour, starttm.tm_min, endtm.tm_year + 1900,
+                   endtm.tm_mon + 1, endtm.tm_mday, endtm.tm_hour, endtm.tm_min,
                    jsonlmode ? ".jsonl" : "");
     if (rv < 0 || (size_t)rv >= sizeof (config.usagelog.rxlog_filename))
     {
-      lprintf (0, "%s(): rxlog filename truncated (basedir/prefix too long), disabling for this interval",
-               __func__);
+      lprintf (
+          0,
+          "%s(): rxlog filename truncated (basedir/prefix too long), disabling for this interval",
+          __func__);
       config.usagelog.rxlog_filename[0] = '\0';
     }
   }
@@ -876,16 +863,15 @@ RenderUsageLogFilenames (void)
   {
     rv = snprintf (config.usagelog.accesslog_filename, sizeof (config.usagelog.accesslog_filename),
                    "%s/%s%saccesslog-%04d%02d%02dT%02d%02d-%04d%02d%02dT%02d%02d.jsonl",
-                   config.usagelog.basedir,
-                   (config.usagelog.prefix) ? config.usagelog.prefix : "",
-                   (config.usagelog.prefix) ? "-" : "",
-                   starttm.tm_year + 1900, starttm.tm_mon + 1, starttm.tm_mday,
-                   starttm.tm_hour, starttm.tm_min,
-                   endtm.tm_year + 1900, endtm.tm_mon + 1, endtm.tm_mday,
-                   endtm.tm_hour, endtm.tm_min);
+                   config.usagelog.basedir, (config.usagelog.prefix) ? config.usagelog.prefix : "",
+                   (config.usagelog.prefix) ? "-" : "", starttm.tm_year + 1900, starttm.tm_mon + 1,
+                   starttm.tm_mday, starttm.tm_hour, starttm.tm_min, endtm.tm_year + 1900,
+                   endtm.tm_mon + 1, endtm.tm_mday, endtm.tm_hour, endtm.tm_min);
     if (rv < 0 || (size_t)rv >= sizeof (config.usagelog.accesslog_filename))
     {
-      lprintf (0, "%s(): accesslog filename truncated (basedir/prefix too long), disabling for this interval",
+      lprintf (0,
+               "%s(): accesslog filename truncated (basedir/prefix too long), disabling for this "
+               "interval",
                __func__);
       config.usagelog.accesslog_filename[0] = '\0';
     }
@@ -920,8 +906,8 @@ CalcUsageLogInterval_locked (time_t reftime)
     return -1;
 
   /* Round down to current day */
-  reftm.tm_sec  = 0;
-  reftm.tm_min  = 0;
+  reftm.tm_sec = 0;
+  reftm.tm_min = 0;
   reftm.tm_hour = 0;
 
   /* Defensive guard, protect against <= 0 values */
@@ -941,7 +927,7 @@ CalcUsageLogInterval_locked (time_t reftime)
   endint = startint + config.usagelog.interval;
 
   config.usagelog.startint = startint;
-  config.usagelog.endint   = endint;
+  config.usagelog.endint = endint;
 
   /* Render the cached log filenames under write_lock so readers in
    * WriteTransferLog() and WriteAccessLog() see a consistent snapshot

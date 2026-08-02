@@ -58,12 +58,11 @@
  * and -1 on error.
  ***************************************************************************/
 int
-SplitStreamID (const char *streamid, char delim, int maxlength,
-               char *id1, char *id2, char *id3, char *id4, char *id5, char *id6,
-               char *type)
+SplitStreamID (const char *streamid, char delim, int maxlength, char *id1, char *id2, char *id3,
+               char *id4, char *id5, char *id6, char *type)
 {
   char *ids[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
-  char *id     = NULL;
+  char *id = NULL;
   char *ptr;
   int idx;
   int length;
@@ -103,13 +102,13 @@ SplitStreamID (const char *streamid, char delim, int maxlength,
   }
 
   /* Find delimiters, convert to terminators and set pointer array */
-  ptr    = id;
+  ptr = id;
   ids[0] = ptr;
   for (idx = 1; idx < 6 && *ptr != '\0'; ptr++)
   {
     if (*ptr == delim)
     {
-      *ptr     = '\0';
+      *ptr = '\0';
       ids[idx] = ptr + 1;
       idx++;
     }
@@ -208,8 +207,7 @@ NSnow (void)
     return NSTERROR;
   }
 
-  return ((int64_t)tp.tv_sec * 1000000000 +
-          (int64_t)tp.tv_usec * 1000);
+  return ((int64_t)tp.tv_sec * 1000000000 + (int64_t)tp.tv_usec * 1000);
 } /* End of NSnow() */
 
 /***************************************************************************
@@ -351,9 +349,9 @@ static int _match_charclass (const char **pp, unsigned char c);
 int
 GlobMatch (const char *string, const char *pattern)
 {
-  const char *star_p      = NULL; /* position of the most recent '*' in pattern */
-  const char *star_s      = NULL; /* position in string when that '*' was seen */
-  unsigned char star_skip = 0;    /* byte to skip past on backtrack, or 0 if none */
+  const char *star_p = NULL;   /* position of the most recent '*' in pattern */
+  const char *star_s = NULL;   /* position in string when that '*' was seen */
+  unsigned char star_skip = 0; /* byte to skip past on backtrack, or 0 if none */
   unsigned char c;
 
   if (string == NULL || pattern == NULL)
@@ -464,7 +462,7 @@ GlobMatch (const char *string, const char *pattern)
         return 0;
       }
 
-      string  = star_s;
+      string = star_s;
       pattern = star_p + 1;
       continue;
     }
@@ -487,7 +485,7 @@ static int
 _match_charclass (const char **pp, unsigned char c)
 {
   const char *p;
-  int negate  = 0;
+  int negate = 0;
   int matched = 0;
 
   if (pp == NULL || *pp == NULL)
@@ -525,7 +523,7 @@ _match_charclass (const char **pp, unsigned char c)
     {
       /* Range X-Y (only ascending ranges are supported) */
       unsigned char start = pc;
-      unsigned char end   = (unsigned char)p[2];
+      unsigned char end = (unsigned char)p[2];
 
       matched |= (c >= start && c <= end);
 

@@ -66,82 +66,82 @@
 
 /* Global parameter declaration and defaults */
 struct param_s param = {
-    .ringlock       = PTHREAD_MUTEX_INITIALIZER,
-    .ringbuffer     = NULL,
-    .datastart      = NULL,
-    .version        = RING_VERSION,
-    .ringsize       = 0,
-    .pktsize        = 0,
-    .maxpackets     = 0,
-    .maxoffset      = 0,
-    .headersize     = 0,
+    .ringlock = PTHREAD_MUTEX_INITIALIZER,
+    .ringbuffer = NULL,
+    .datastart = NULL,
+    .version = RING_VERSION,
+    .ringsize = 0,
+    .pktsize = 0,
+    .maxpackets = 0,
+    .maxoffset = 0,
+    .headersize = 0,
     .earliestoffset = -1,
-    .latestoffset   = -1,
+    .latestoffset = -1,
 
-    .streamlock  = PTHREAD_MUTEX_INITIALIZER,
-    .streamidx   = NULL,
+    .streamlock = PTHREAD_MUTEX_INITIALIZER,
+    .streamidx = NULL,
     .streamcount = 0,
 
-    .clientcount     = 0,
-    .shutdownsig     = 0,
+    .clientcount = 0,
+    .shutdownsig = 0,
     .serverstarttime = NSTUNSET,
     .configfilemtime = 0,
-    .sthreads_lock   = PTHREAD_MUTEX_INITIALIZER,
-    .sthreads        = NULL,
-    .cthreads_lock   = PTHREAD_MUTEX_INITIALIZER,
-    .cthreads        = NULL,
-    .txpacketrate    = 0.0,
-    .txbyterate      = 0.0,
-    .rxpacketrate    = 0.0,
-    .rxbyterate      = 0.0,
+    .sthreads_lock = PTHREAD_MUTEX_INITIALIZER,
+    .sthreads = NULL,
+    .cthreads_lock = PTHREAD_MUTEX_INITIALIZER,
+    .cthreads = NULL,
+    .txpacketrate = 0.0,
+    .txbyterate = 0.0,
+    .rxpacketrate = 0.0,
+    .rxbyterate = 0.0,
 };
 
 /* Configuration parameter declaration and defaults */
 struct config_s config = {
-    .config_rwlock         = PTHREAD_RWLOCK_INITIALIZER,
-    .verbose               = 0,
-    .configfile            = NULL,
-    .serverid              = NULL,
-    .ringdir               = NULL,
-    .ringsize              = GIBIBYTE,
-    .pktsize               = sizeof (RingPacket) + 512,
-    .maxclients            = 600,
-    .maxclientsperip       = 0,
-    .infocachettl          = 5,
-    .clienttimeout         = 3600,
-    .netiotimeout          = 10,
-    .tcpkeepalive_idle     = 60,
+    .config_rwlock = PTHREAD_RWLOCK_INITIALIZER,
+    .verbose = 0,
+    .configfile = NULL,
+    .serverid = NULL,
+    .ringdir = NULL,
+    .ringsize = GIBIBYTE,
+    .pktsize = sizeof (RingPacket) + 512,
+    .maxclients = 600,
+    .maxclientsperip = 0,
+    .infocachettl = 5,
+    .clienttimeout = 3600,
+    .netiotimeout = 10,
+    .tcpkeepalive_idle = 60,
     .tcpkeepalive_interval = 30,
-    .tcpkeepalive_count    = 4,
-    .timewinlimit          = 1.0,
-    .resolvehosts          = 1,
-    .memorymapring         = 1,
-    .volatilering          = 0,
-    .autorecovery          = 1,
-    .webroot               = NULL,
-    .httpheaders           = NULL,
-    .mseedarchive          = NULL,
-    .mseedidleto           = 300,
-    .allowedips            = NULL,
-    .forbiddenips          = NULL,
-    .acceptips             = NULL,
-    .denyips               = NULL,
-    .writeips              = NULL,
-    .trustedips            = NULL,
-    .tlscertfile           = NULL,
-    .tlskeyfile            = NULL,
-    .tlsverifyclientcert   = 0,
-    .auth.program          = NULL,
-    .auth.argv             = NULL,
-    .auth.required         = 0,
-    .auth.timeout_sec      = 5,
-    .usagelog.write_lock   = PTHREAD_MUTEX_INITIALIZER,
-    .usagelog.mode         = USAGELOG_NONE,
-    .usagelog.basedir      = NULL,
-    .usagelog.prefix       = NULL,
-    .usagelog.interval     = 86400,
-    .usagelog.startint     = 0,
-    .usagelog.endint       = 0,
+    .tcpkeepalive_count = 4,
+    .timewinlimit = 1.0,
+    .resolvehosts = 1,
+    .memorymapring = 1,
+    .volatilering = 0,
+    .autorecovery = 1,
+    .webroot = NULL,
+    .httpheaders = NULL,
+    .mseedarchive = NULL,
+    .mseedidleto = 300,
+    .allowedips = NULL,
+    .forbiddenips = NULL,
+    .acceptips = NULL,
+    .denyips = NULL,
+    .writeips = NULL,
+    .trustedips = NULL,
+    .tlscertfile = NULL,
+    .tlskeyfile = NULL,
+    .tlsverifyclientcert = 0,
+    .auth.program = NULL,
+    .auth.argv = NULL,
+    .auth.required = 0,
+    .auth.timeout_sec = 5,
+    .usagelog.write_lock = PTHREAD_MUTEX_INITIALIZER,
+    .usagelog.mode = USAGELOG_NONE,
+    .usagelog.basedir = NULL,
+    .usagelog.prefix = NULL,
+    .usagelog.interval = 86400,
+    .usagelog.startint = 0,
+    .usagelog.endint = 0,
 };
 
 /* Local functions and variables */
@@ -149,8 +149,8 @@ static void LogServerParameters (void);
 static struct thread_data *InitThreadData (void *prvtptr);
 static void *ListenThread (void *arg);
 static ClientInfo *ConfigClient (struct sockaddr *paddr, int clientsocket,
-                                 const ListenPortParams *lpp,
-                                 const char *ipstr, const char *portstr);
+                                 const ListenPortParams *lpp, const char *ipstr,
+                                 const char *portstr);
 static int CalcStats (ClientInfo *cinfo);
 static IPNet *MatchIP (IPNet *list, struct sockaddr *addr);
 static int ClientIPCount (struct sockaddr *addr);
@@ -163,9 +163,9 @@ static int tcpprotonumber = -1;
 int
 main (int argc, char *argv[])
 {
-  char ringfilename[PATH_MAX]      = {0};
-  char streamfilename[PATH_MAX]    = {0};
-  char ringfile_backup[PATH_MAX]   = {0};
+  char ringfilename[PATH_MAX] = {0};
+  char streamfilename[PATH_MAX] = {0};
+  char ringfile_backup[PATH_MAX] = {0};
   char streamfile_backup[PATH_MAX] = {0};
   nstime_t hpcurtime;
   time_t curtime;
@@ -178,7 +178,7 @@ main (int argc, char *argv[])
   struct cthread *ctp;
   struct cthread *loopctp;
   int usage_interval_ended = 0;
-  int server_thread_count  = 0;
+  int server_thread_count = 0;
 
   double txpacketrate;
   double txbyterate;
@@ -245,14 +245,16 @@ main (int argc, char *argv[])
     if (!config.volatilering)
     {
       /* Create ring file path: "<ringdir>/packetbuf" */
-      if (snprintf (ringfilename, sizeof (ringfilename), "%s/packetbuf", config.ringdir) >= sizeof (ringfilename))
+      if (snprintf (ringfilename, sizeof (ringfilename), "%s/packetbuf", config.ringdir) >=
+          sizeof (ringfilename))
       {
         lprintf (0, "Error: ring buffer directory too long");
         return 1;
       }
 
       /* Create stream index file path: "<ringdir>/streamidx" */
-      if (snprintf (streamfilename, sizeof (streamfilename), "%s/streamidx", config.ringdir) >= sizeof (streamfilename))
+      if (snprintf (streamfilename, sizeof (streamfilename), "%s/streamidx", config.ringdir) >=
+          sizeof (streamfilename))
       {
         lprintf (0, "Error: ring buffer directory too long");
         return 1;
@@ -284,15 +286,20 @@ main (int argc, char *argv[])
         {
           lprintf (0, "Auto recovery, moving packet buffer and stream index files to .corrupt");
 
-          snprintf (ringfile_backup, sizeof (ringfile_backup), "%.*s.corrupt", (int)sizeof (ringfile_backup) - 10, ringfilename);
-          snprintf (streamfile_backup, sizeof (streamfile_backup), "%.*s.corrupt", (int)sizeof (streamfile_backup) - 10, streamfilename);
+          snprintf (ringfile_backup, sizeof (ringfile_backup), "%.*s.corrupt",
+                    (int)sizeof (ringfile_backup) - 10, ringfilename);
+          snprintf (streamfile_backup, sizeof (streamfile_backup), "%.*s.corrupt",
+                    (int)sizeof (streamfile_backup) - 10, streamfilename);
         }
         else
         {
-          lprintf (0, "Auto recovery, moving packet buffer and stream index files to .version%d", ringinit);
+          lprintf (0, "Auto recovery, moving packet buffer and stream index files to .version%d",
+                   ringinit);
 
-          snprintf (ringfile_backup, sizeof (ringfile_backup), "%.*s.version%d", (int)sizeof (ringfile_backup) - 24, ringfilename, ringinit);
-          snprintf (streamfile_backup, sizeof (streamfile_backup), "%.*s.version%d", (int)sizeof (streamfile_backup) - 24, streamfilename, ringinit);
+          snprintf (ringfile_backup, sizeof (ringfile_backup), "%.*s.version%d",
+                    (int)sizeof (ringfile_backup) - 24, ringfilename, ringinit);
+          snprintf (streamfile_backup, sizeof (streamfile_backup), "%.*s.version%d",
+                    (int)sizeof (streamfile_backup) - 24, streamfilename, ringinit);
           convert_version = ringinit;
         }
 
@@ -412,7 +419,7 @@ main (int argc, char *argv[])
   LogServerParameters ();
 
   /* Set loop interval check tick to 1/4 second */
-  timereq.tv_sec  = 0;
+  timereq.tv_sec = 0;
   timereq.tv_nsec = 250000000;
 
   /* Watchdog loop: monitors the server and client threads
@@ -474,8 +481,8 @@ main (int argc, char *argv[])
       loopctp = param.cthreads;
       while (loopctp)
       {
-        if (loopctp->td->td_state != TDS_CLOSE &&
-            loopctp->td->td_state != TDS_CLOSING && loopctp->td->td_state != TDS_CLOSED)
+        if (loopctp->td->td_state != TDS_CLOSE && loopctp->td->td_state != TDS_CLOSING &&
+            loopctp->td->td_state != TDS_CLOSED)
         {
           lprintf (3, "Requesting shutdown of client thread %lu",
                    (unsigned long int)loopctp->td->td_id);
@@ -523,14 +530,14 @@ main (int argc, char *argv[])
 
     /* Loop through server thread list to monitor threads, print status and perform cleanup */
     pthread_mutex_lock (&param.sthreads_lock);
-    loopstp             = param.sthreads;
+    loopstp = param.sthreads;
     server_thread_count = 0;
     while (loopstp)
     {
-      char *threadtype             = "";
+      char *threadtype = "";
       void *(*threadfunc) (void *) = NULL;
 
-      stp     = loopstp;
+      stp = loopstp;
       loopstp = loopstp->next;
 
       if (stp->type == LISTEN_THREAD)
@@ -561,8 +568,8 @@ main (int argc, char *argv[])
         else
           state = "UNKNOWN";
 
-        lprintf (3, "Server thread (%s) %lu state: %s",
-                 threadtype, (unsigned long int)stp->td->td_id, state);
+        lprintf (3, "Server thread (%s) %lu state: %s", threadtype,
+                 (unsigned long int)stp->td->td_id, state);
 
         server_thread_count++;
       }
@@ -677,7 +684,7 @@ main (int argc, char *argv[])
     loopctp = param.cthreads;
     while (loopctp)
     {
-      ctp     = loopctp;
+      ctp = loopctp;
       loopctp = loopctp->next;
 
       char *state;
@@ -694,8 +701,7 @@ main (int argc, char *argv[])
       else
         state = "UNKNOWN";
 
-      lprintf (3, "Client thread %lu state: %s",
-               (unsigned long int)ctp->td->td_id, state);
+      lprintf (3, "Client thread %lu state: %s", (unsigned long int)ctp->td->td_id, state);
 
       /* Free associated resources and join CLOSED client threads */
       if (ctp->td->td_state == TDS_CLOSED)
@@ -715,8 +721,8 @@ main (int argc, char *argv[])
 
         if ((errno = pthread_join (ctp->td->td_id, NULL)))
         {
-          lprintf (0, "Error joining CLOSED thread %lu: %s",
-                   (unsigned long int)ctp->td->td_id, strerror (errno));
+          lprintf (0, "Error joining CLOSED thread %lu: %s", (unsigned long int)ctp->td->td_id,
+                   strerror (errno));
         }
 
         /* Free the ClientInfo structure stored at the prvtptr and destroy the streams_lock mutex */
@@ -753,10 +759,11 @@ main (int argc, char *argv[])
           WriteTransferLog ((ClientInfo *)ctp->td->td_prvtptr, 1);
 
         /* Close idle clients if limit is set and exceeded */
-        if (config.clienttimeout &&
-            (hpcurtime - ((ClientInfo *)ctp->td->td_prvtptr)->lastxchange) > (config.clienttimeout * (nstime_t)NSTMODULUS))
+        if (config.clienttimeout && (hpcurtime - ((ClientInfo *)ctp->td->td_prvtptr)->lastxchange) >
+                                        (config.clienttimeout * (nstime_t)NSTMODULUS))
         {
-          lprintf (1, "Closing idle client connection: %s", ((ClientInfo *)ctp->td->td_prvtptr)->hostname);
+          lprintf (1, "Closing idle client connection: %s",
+                   ((ClientInfo *)ctp->td->td_prvtptr)->hostname);
           ctp->td->td_state = TDS_CLOSE;
         }
       }
@@ -767,9 +774,9 @@ main (int argc, char *argv[])
 
     /* Update count and byte rate ring parameters */
     param.txpacketrate = txpacketrate;
-    param.txbyterate   = txbyterate;
+    param.txbyterate = txbyterate;
     param.rxpacketrate = rxpacketrate;
-    param.rxbyterate   = rxbyterate;
+    param.rxbyterate = rxbyterate;
 
     /* Check for config file updates */
     if (config.configfile && !lstat (config.configfile, &cfstat))
@@ -874,7 +881,7 @@ InitThreadData (void *prvtptr)
     return 0;
   }
 
-  rtdp->td_id    = 0;
+  rtdp->td_id = 0;
   rtdp->td_state = TDS_SPAWNING;
 
   rtdp->td_prvtptr = prvtptr;
@@ -918,10 +925,10 @@ FreeClientInfo (ClientInfo *cinfo)
 static void
 ConfigureTCPKeepAlive (int sock, const char *peer)
 {
-  uint32_t idle  = config.tcpkeepalive_idle;
+  uint32_t idle = config.tcpkeepalive_idle;
   uint32_t intvl = config.tcpkeepalive_interval;
-  uint32_t cnt   = config.tcpkeepalive_count;
-  int one        = 1;
+  uint32_t cnt = config.tcpkeepalive_count;
+  int one = 1;
 
   if (idle == 0)
     return;
@@ -938,14 +945,12 @@ ConfigureTCPKeepAlive (int sock, const char *peer)
 #endif
 
 #if defined(TCP_KEEPINTVL)
-  if (intvl > 0 &&
-      setsockopt (sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof (intvl)))
+  if (intvl > 0 && setsockopt (sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof (intvl)))
     lprintf (0, "[%s] setsockopt(TCP_KEEPINTVL): %s", peer, strerror (errno));
 #endif
 
 #if defined(TCP_KEEPCNT)
-  if (cnt > 0 &&
-      setsockopt (sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof (cnt)))
+  if (cnt > 0 && setsockopt (sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof (cnt)))
     lprintf (0, "[%s] setsockopt(TCP_KEEPCNT): %s", peer, strerror (errno));
 #endif
 } /* End of ConfigureTCPKeepAlive() */
@@ -980,18 +985,16 @@ ListenThread (void *arg)
   uint16_t proxy_dest_port = 0;
 
   mytdp = (struct thread_data *)arg;
-  lpp   = (ListenPortParams *)mytdp->td_prvtptr;
+  lpp = (ListenPortParams *)mytdp->td_prvtptr;
 
   /* Set thread active status */
   mytdp->td_state = TDS_ACTIVE;
 
   /* Generate string of protocols and options supported by this listener */
   if (GenProtocolString (lpp->protocols, lpp->options, protocolstr, sizeof (protocolstr)) > 0)
-    lprintf (1, "Listening for connections on port %s (%s)",
-             lpp->portstr, protocolstr);
+    lprintf (1, "Listening for connections on port %s (%s)", lpp->portstr, protocolstr);
   else
-    lprintf (1, "Listening for connections on port %s (unknown protocols?)",
-             lpp->portstr);
+    lprintf (1, "Listening for connections on port %s (unknown protocols?)", lpp->portstr);
 
   int backoff_logged = 0;
 
@@ -1048,9 +1051,8 @@ ListenThread (void *arg)
     {
       /* Use the configured network I/O timeout for the PROXY header read.
        * Fall back to a fixed maximum when netiotimeout is disabled. */
-      int proxy_timeout_ms = (config.netiotimeout > 0)
-                                 ? (int)config.netiotimeout * 1000
-                                 : PROXY_HEADER_TIMEOUT_MAX_MS;
+      int proxy_timeout_ms =
+          (config.netiotimeout > 0) ? (int)config.netiotimeout * 1000 : PROXY_HEADER_TIMEOUT_MAX_MS;
 
       int ppresult = ProxyProtocolV2Read (clientsocket, proxy_timeout_ms, &addr_storage, &addrlen,
                                           &proxy_dest_port);
@@ -1141,14 +1143,14 @@ ListenThread (void *arg)
     /* Update thread id, no locking, should be safe */
     tdp->td_id = ctid;
 
-    ctp->td   = tdp;
+    ctp->td = tdp;
     ctp->prev = NULL;
 
     /* Add ctp to the beginning of the client threads list (cthreads) */
     pthread_mutex_lock (&param.cthreads_lock);
     if (param.cthreads)
     {
-      ctp->next            = param.cthreads;
+      ctp->next = param.cthreads;
       param.cthreads->prev = ctp;
     }
     else
@@ -1176,8 +1178,7 @@ ListenThread (void *arg)
  * Return an allocated ClientInfo structure on success and NULL on error.
  ***********************************************************************/
 ClientInfo *
-ConfigClient (struct sockaddr *paddr, int clientsocket,
-              const ListenPortParams *lpp,
+ConfigClient (struct sockaddr *paddr, int clientsocket, const ListenPortParams *lpp,
               const char *ipstr, const char *portstr)
 {
   ClientInfo *cinfo;
@@ -1238,14 +1239,14 @@ ConfigClient (struct sockaddr *paddr, int clientsocket,
     return NULL;
   }
 
-  cinfo->socket    = clientsocket;
+  cinfo->socket = clientsocket;
   cinfo->protocols = lpp->protocols;
-  cinfo->tls       = (lpp->options & ENCRYPTION_TLS) ? 1 : 0;
-  cinfo->proxyv2   = (lpp->options & PROXY_PROTOCOL_V2) ? 1 : 0;
-  cinfo->state     = STATE_COMMAND;
-  cinfo->type      = CLIENT_UNDETERMINED;
+  cinfo->tls = (lpp->options & ENCRYPTION_TLS) ? 1 : 0;
+  cinfo->proxyv2 = (lpp->options & PROXY_PROTOCOL_V2) ? 1 : 0;
+  cinfo->state = STATE_COMMAND;
+  cinfo->type = CLIENT_UNDETERMINED;
   cinfo->starttime = NSTUNSET;
-  cinfo->endtime   = NSTUNSET;
+  cinfo->endtime = NSTUNSET;
 
   /* Initialize streams lock */
   pthread_mutex_init (&cinfo->streams_lock, NULL);
@@ -1330,10 +1331,10 @@ ConfigClient (struct sockaddr *paddr, int clientsocket,
       return NULL;
     }
 
-    cinfo->mswrite->idletimeout   = config.mseedidleto;
-    cinfo->mswrite->maxopenfiles  = 50;
+    cinfo->mswrite->idletimeout = config.mseedidleto;
+    cinfo->mswrite->maxopenfiles = 50;
     cinfo->mswrite->openfilecount = 0;
-    cinfo->mswrite->grouproot     = NULL;
+    cinfo->mswrite->grouproot = NULL;
   }
 
   return cinfo;
@@ -1370,10 +1371,10 @@ CalcStats (ClientInfo *cinfo)
     return -1;
 
   reader = cinfo->reader;
-  nsnow  = NSnow ();
+  nsnow = NSnow ();
 
   earliestoffset = param.earliestoffset;
-  latestoffset   = param.latestoffset;
+  latestoffset = param.latestoffset;
 
   /* Determine percent lag if the current pktid is set */
   if (reader && reader->pktid <= RINGID_MAXIMUM)
@@ -1390,10 +1391,13 @@ CalcStats (ClientInfo *cinfo)
     else
       readeroffset_unwrapped = reader->pktoffset;
 
-    /* Calculate percentage lag as position in ring where 0% = latest offset and 100% = earliest offset */
+    /* Calculate percentage lag as position in ring where 0% = latest offset and 100% = earliest
+     * offset */
     if (latestoffset_unwrapped != earliestoffset)
     {
-      cinfo->percentlag = (int)(((double)(latestoffset_unwrapped - readeroffset_unwrapped) / (latestoffset_unwrapped - earliestoffset)) * 100);
+      cinfo->percentlag = (int)(((double)(latestoffset_unwrapped - readeroffset_unwrapped) /
+                                 (latestoffset_unwrapped - earliestoffset)) *
+                                100);
 
       /* Enforce bounds on percentage lag */
       if (cinfo->percentlag < 0)
@@ -1415,10 +1419,10 @@ CalcStats (ClientInfo *cinfo)
   if (cinfo->ratetime == 0)
   {
     cinfo->txpackets1 = cinfo->txpackets0;
-    cinfo->txbytes1   = cinfo->txbytes0;
+    cinfo->txbytes1 = cinfo->txbytes0;
     cinfo->rxpackets1 = cinfo->rxpackets0;
-    cinfo->rxbytes1   = cinfo->rxbytes0;
-    cinfo->ratetime   = nsnow;
+    cinfo->rxbytes1 = cinfo->rxbytes0;
+    cinfo->ratetime = nsnow;
 
     return 0;
   }
@@ -1436,28 +1440,28 @@ CalcStats (ClientInfo *cinfo)
   if (cinfo->txpackets0 > 0)
   {
     /* Calculate instantaneous transmission rates and smooth with EMA */
-    double txpktrate_inst  = (double)(cinfo->txpackets0 - cinfo->txpackets1) / deltasec;
+    double txpktrate_inst = (double)(cinfo->txpackets0 - cinfo->txpackets1) / deltasec;
     double txbyterate_inst = (double)(cinfo->txbytes0 - cinfo->txbytes1) / deltasec;
-    cinfo->txpacketrate    = alpha * txpktrate_inst + (1.0 - alpha) * cinfo->txpacketrate;
-    cinfo->txbyterate      = alpha * txbyterate_inst + (1.0 - alpha) * cinfo->txbyterate;
+    cinfo->txpacketrate = alpha * txpktrate_inst + (1.0 - alpha) * cinfo->txpacketrate;
+    cinfo->txbyterate = alpha * txbyterate_inst + (1.0 - alpha) * cinfo->txbyterate;
 
     /* Shift current values to history values */
     cinfo->txpackets1 = cinfo->txpackets0;
-    cinfo->txbytes1   = cinfo->txbytes0;
+    cinfo->txbytes1 = cinfo->txbytes0;
   }
 
   /* Reception */
   if (cinfo->rxpackets0 > 0)
   {
     /* Calculate instantaneous reception rates and smooth with EMA */
-    double rxpktrate_inst  = (double)(cinfo->rxpackets0 - cinfo->rxpackets1) / deltasec;
+    double rxpktrate_inst = (double)(cinfo->rxpackets0 - cinfo->rxpackets1) / deltasec;
     double rxbyterate_inst = (double)(cinfo->rxbytes0 - cinfo->rxbytes1) / deltasec;
-    cinfo->rxpacketrate    = alpha * rxpktrate_inst + (1.0 - alpha) * cinfo->rxpacketrate;
-    cinfo->rxbyterate      = alpha * rxbyterate_inst + (1.0 - alpha) * cinfo->rxbyterate;
+    cinfo->rxpacketrate = alpha * rxpktrate_inst + (1.0 - alpha) * cinfo->rxpacketrate;
+    cinfo->rxbyterate = alpha * rxbyterate_inst + (1.0 - alpha) * cinfo->rxbyterate;
 
     /* Shift current values to history values */
     cinfo->rxpackets1 = cinfo->rxpackets0;
-    cinfo->rxbytes1   = cinfo->rxbytes0;
+    cinfo->rxbytes1 = cinfo->rxbytes0;
   }
 
   /* Update time stamp of history values */
@@ -1477,8 +1481,8 @@ CalcStats (ClientInfo *cinfo)
 static IPNet *
 MatchIP (IPNet *list, struct sockaddr *addr)
 {
-  IPNet *net                = list;
-  struct in_addr *testnet   = &((struct sockaddr_in *)addr)->sin_addr;
+  IPNet *net = list;
+  struct in_addr *testnet = &((struct sockaddr_in *)addr)->sin_addr;
   struct in6_addr *testnet6 = &((struct sockaddr_in6 *)addr)->sin6_addr;
 
   if (!list)
@@ -1538,8 +1542,7 @@ ClientIPCount (struct sockaddr *addr)
   while (ctp)
   {
     /* Only dereference ClientInfo for ACTIVE threads (invariant: see ClientThread) */
-    if (ctp->td && ctp->td->td_state == TDS_ACTIVE &&
-        ctp->td->td_prvtptr &&
+    if (ctp->td && ctp->td->td_state == TDS_ACTIVE && ctp->td->td_prvtptr &&
         ((ClientInfo *)ctp->td->td_prvtptr)->addr)
     {
       /* If the same IP protocol family */
@@ -1551,8 +1554,7 @@ ClientIPCount (struct sockaddr *addr)
           tsin[0] = (struct sockaddr_in *)((ClientInfo *)ctp->td->td_prvtptr)->addr;
           tsin[1] = (struct sockaddr_in *)addr;
 
-          if (0 == memcmp (&tsin[0]->sin_addr.s_addr,
-                           &tsin[1]->sin_addr.s_addr,
+          if (0 == memcmp (&tsin[0]->sin_addr.s_addr, &tsin[1]->sin_addr.s_addr,
                            sizeof (tsin[0]->sin_addr.s_addr)))
           {
             addrcount++;
@@ -1564,8 +1566,7 @@ ClientIPCount (struct sockaddr *addr)
           tsin6[0] = (struct sockaddr_in6 *)((ClientInfo *)ctp->td->td_prvtptr)->addr;
           tsin6[1] = (struct sockaddr_in6 *)addr;
 
-          if (0 == memcmp (&tsin6[0]->sin6_addr.s6_addr,
-                           &tsin6[1]->sin6_addr.s6_addr,
+          if (0 == memcmp (&tsin6[0]->sin6_addr.s6_addr, &tsin6[1]->sin6_addr.s6_addr,
                            sizeof (tsin6[0]->sin6_addr.s6_addr)))
           {
             addrcount++;
@@ -1589,8 +1590,7 @@ ClientIPCount (struct sockaddr *addr)
  * Return length of string in result on success or 0 for error.
  ***************************************************************************/
 int
-GenProtocolString (ListenProtocols protocols, ListenOptions options,
-                   char *result, size_t maxlength)
+GenProtocolString (ListenProtocols protocols, ListenOptions options, char *result, size_t maxlength)
 {
   int length;
   char *family;
@@ -1605,9 +1605,7 @@ GenProtocolString (ListenProtocols protocols, ListenOptions options,
   else
     family = "Unknown family?";
 
-  length = snprintf (result, maxlength,
-                     "%s: %s%s%s%s%s%s",
-                     family,
+  length = snprintf (result, maxlength, "%s: %s%s%s%s%s%s", family,
                      (protocols & PROTO_DATALINK) ? "DataLink " : "",
                      (protocols & PROTO_SEEDLINK) ? "SeedLink " : "",
                      (protocols & PROTO_HTTP) ? "HTTP " : "",
@@ -1654,7 +1652,7 @@ SignalThread (void *arg)
     case SIGINT:
     case SIGTERM:
       lprintf (1, "Received termination signal");
-      param.shutdownsig   = 1; /* Set global termination flag */
+      param.shutdownsig = 1;   /* Set global termination flag */
       config.netiotimeout = 0; /* Disable network IO timeout */
       break;
     case SIGUSR1:
@@ -1692,20 +1690,16 @@ LogServerParameters (void)
   HumanSizeString (param.ringsize, sizestr, sizeof (sizestr));
 
   lprintf (1, "Ring parameters, buffer version: %u", param.version);
-  lprintf (1, "   ringsize: %" PRIu64 " (%s), pktsize: %u (%zu payload)",
-           param.ringsize, sizestr,
-           config.pktsize,
-           config.pktsize - sizeof (RingPacket));
+  lprintf (1, "   ringsize: %" PRIu64 " (%s), pktsize: %u (%zu payload)", param.ringsize, sizestr,
+           config.pktsize, config.pktsize - sizeof (RingPacket));
 
   lprintf (2, "   headersize: %u", param.headersize);
 
-  lprintf (2, "   maxpackets: %" PRIu64 ", maxoffset: %" PRId64,
-           param.maxpackets, param.maxoffset);
+  lprintf (2, "   maxpackets: %" PRIu64 ", maxoffset: %" PRId64, param.maxpackets, param.maxoffset);
 
   lprintf (2, "   streamcount: %u", param.streamcount);
 
-  lprintf (2, "   volatile: %s, mmap: %s",
-           (config.volatilering) ? "yes" : "no",
+  lprintf (2, "   volatile: %s, mmap: %s", (config.volatilering) ? "yes" : "no",
            (config.memorymapring) ? "yes" : "no");
 
   pktid = RingReadPacket (param.earliestoffset, &packet, NULL);
@@ -1714,7 +1708,8 @@ LogServerParameters (void)
     lprintf (2, "   earliest packet ID: %" PRIu64 ", offset: %" PRId64, pktid, packet.offset);
     ms_nstime2timestr_n (packet.pkttime, timestr, sizeof (timestr), ISOMONTHDAY_Z, NANO_MICRO_NONE);
     lprintf (2, "   earliest packet creation time: %s", timestr);
-    ms_nstime2timestr_n (packet.datastart, timestr, sizeof (timestr), ISOMONTHDAY_Z, NANO_MICRO_NONE);
+    ms_nstime2timestr_n (packet.datastart, timestr, sizeof (timestr), ISOMONTHDAY_Z,
+                         NANO_MICRO_NONE);
     lprintf (2, "   earliest packet data start time: %s", timestr);
   }
   else
@@ -1728,7 +1723,8 @@ LogServerParameters (void)
     lprintf (2, "   latest packet ID: %" PRIu64 ", offset: %" PRId64, pktid, packet.offset);
     ms_nstime2timestr_n (packet.pkttime, timestr, sizeof (timestr), ISOMONTHDAY_Z, NANO_MICRO_NONE);
     lprintf (2, "   latest packet creation time: %s", timestr);
-    ms_nstime2timestr_n (packet.datastart, timestr, sizeof (timestr), ISOMONTHDAY_Z, NANO_MICRO_NONE);
+    ms_nstime2timestr_n (packet.datastart, timestr, sizeof (timestr), ISOMONTHDAY_Z,
+                         NANO_MICRO_NONE);
     lprintf (2, "   latest packet data start time: %s", timestr);
   }
   else
@@ -1790,7 +1786,8 @@ LogServerParameters (void)
 
     if (config.usagelog.startint)
     {
-      ms_nstime2timestr_n (MS_EPOCH2NSTIME (config.usagelog.startint), timestr, sizeof (timestr), ISOMONTHDAY_Z, NONE);
+      ms_nstime2timestr_n (MS_EPOCH2NSTIME (config.usagelog.startint), timestr, sizeof (timestr),
+                           ISOMONTHDAY_Z, NONE);
       lprintf (3, "     log interval start: %s", timestr);
     }
     else
@@ -1800,7 +1797,8 @@ LogServerParameters (void)
 
     if (config.usagelog.endint)
     {
-      ms_nstime2timestr_n (MS_EPOCH2NSTIME (config.usagelog.endint), timestr, sizeof (timestr), ISOMONTHDAY_Z, NONE);
+      ms_nstime2timestr_n (MS_EPOCH2NSTIME (config.usagelog.endint), timestr, sizeof (timestr),
+                           ISOMONTHDAY_Z, NONE);
       lprintf (3, "     log interval end: %s", timestr);
     }
     else
@@ -1932,7 +1930,7 @@ static void
 PrintHandler (void)
 {
   uint8_t verbose_save = config.verbose;
-  config.verbose       = 3;
+  config.verbose = 3;
   LogServerParameters ();
   config.verbose = verbose_save;
 }

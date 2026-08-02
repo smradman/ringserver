@@ -23,7 +23,8 @@
 #define LOGGING_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include <time.h>
@@ -31,7 +32,7 @@ extern "C" {
 #include "clients.h"
 
 #if defined(__GNUC__) || defined(__clang__)
-__attribute__((__format__ (__printf__, 2, 3)))
+__attribute__ ((__format__ (__printf__, 2, 3)))
 #endif
 extern int lprintf (int level, char *fmt, ...);
 extern void lprint (const char *message);
@@ -48,9 +49,8 @@ extern int WriteTransferLog (ClientInfo *cinfo, int reset);
  * current interval window.  Reads the pre-rendered filename from
  * config.usagelog.accesslog_filename under config.usagelog.write_lock;
  * does not take config_rwlock.  Returns 0 if access logging is not enabled. */
-extern int WriteAccessLog (ClientInfo *cinfo, const char *event,
-                           const char *command, const char *detail,
-                           const char *match, const char *reject);
+extern int WriteAccessLog (ClientInfo *cinfo, const char *event, const char *command,
+                           const char *detail, const char *match, const char *reject);
 
 /* Calculate a normalized interval time window and render the three cached log
  * filenames (txlog, rxlog, accesslog) into config.usagelog.  Takes

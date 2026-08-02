@@ -407,7 +407,6 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
         return -1;
       }
 
-      /* Sub-command comparison is case-sensitive (DataLink convention) */
       if (cmdtoken_eq_nocase (cmd, 1, "USERPASS"))
       {
         /* Parse USERNAME and PASSWORD from credential payload */

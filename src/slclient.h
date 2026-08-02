@@ -42,9 +42,9 @@ extern "C"
 /* Server capabilities for v4 reported in INFO CAPABILITIES */
 #define SLCAPABILITIESv4 "SLPROTO:4.0 SLPROTO:3.1 TIME WS:13 SEQWILDCARD"
 
-#define SLHEADSIZE_V3 8       /* SeedLink header size */
-#define SLHEADSIZE_V4 17      /* Extended SeedLink header fixed size */
-#define SLINFORECSIZE 512     /* miniSEED record size for INFO packets */
+#define SLHEADSIZE_V3 8   /* SeedLink header size */
+#define SLHEADSIZE_V4 17  /* Extended SeedLink header fixed size */
+#define SLINFORECSIZE 512 /* miniSEED record size for INFO packets */
 
 #define SLMAXREGEXLEN 2097152 /* Maximum length of match/reject regex pattern */
 #define SLMAXSELECTLEN 2048   /* Maximum length of per-station/global selector buffer */
@@ -60,14 +60,14 @@ extern "C"
 /* Error codes */
 typedef enum
 {
-  ERROR_NONE         = 0,
-  ERROR_INTERNAL     = 1u << 1,
-  ERROR_UNSUPPORTED  = 1u << 2,
-  ERROR_UNEXPECTED   = 1u << 3,
+  ERROR_NONE = 0,
+  ERROR_INTERNAL = 1u << 1,
+  ERROR_UNSUPPORTED = 1u << 2,
+  ERROR_UNEXPECTED = 1u << 3,
   ERROR_UNAUTHORIZED = 1u << 4,
-  ERROR_LIMIT        = 1u << 5,
-  ERROR_ARGUMENTS    = 1u << 6,
-  ERROR_AUTH         = 1u << 7,
+  ERROR_LIMIT = 1u << 5,
+  ERROR_ARGUMENTS = 1u << 6,
+  ERROR_AUTH = 1u << 7,
 } ErrorCode;
 
 typedef struct Selector
@@ -81,27 +81,27 @@ typedef struct Selector
 /* Structure to hold SeedLink specific parameters */
 typedef struct SLInfo
 {
-  uint8_t proto_major;   /* Major protocol version */
-  uint8_t proto_minor;   /* Minor protocol version */
-  int extreply;          /* Capability flag: client can receive extended replies */
-  int dialup;            /* Connection is in dialup/fetch mode */
-  int batch;             /* Connection is in batch mode */
-  int terminfo;          /* Terminating INFO packet flag */
-  uint64_t startid;      /* Starting packet ID */
-  Selector *selectors;   /* List of SeedLink selectors */
-  int stationcount;      /* Number of stations requested with STATION */
-  int timewinchannels;   /* Count of channels for time window completion check */
-  RBTree *stations;      /* Binary tree of stations requested */
-  char reqstaid[51];     /* Requested station ID, used during negotiation */
+  uint8_t proto_major; /* Major protocol version */
+  uint8_t proto_minor; /* Minor protocol version */
+  int extreply;        /* Capability flag: client can receive extended replies */
+  int dialup;          /* Connection is in dialup/fetch mode */
+  int batch;           /* Connection is in batch mode */
+  int terminfo;        /* Terminating INFO packet flag */
+  uint64_t startid;    /* Starting packet ID */
+  Selector *selectors; /* List of SeedLink selectors */
+  int stationcount;    /* Number of stations requested with STATION */
+  int timewinchannels; /* Count of channels for time window completion check */
+  RBTree *stations;    /* Binary tree of stations requested */
+  char reqstaid[51];   /* Requested station ID, used during negotiation */
 } SLInfo;
 
 /* Requested station IDs, used as the data for B-tree at SLInfo.stations */
 typedef struct ReqStationID
 {
-  nstime_t starttime; /* Requested start time for StaID */
-  nstime_t endtime;   /* Requested end time for StaID */
-  uint64_t packetid;  /* Requested packet ID */
-  nstime_t datastart; /* Data start time of requested packet */
+  nstime_t starttime;  /* Requested start time for StaID */
+  nstime_t endtime;    /* Requested end time for StaID */
+  uint64_t packetid;   /* Requested packet ID */
+  nstime_t datastart;  /* Data start time of requested packet */
   Selector *selectors; /* List of selected streams */
 } ReqStationID;
 

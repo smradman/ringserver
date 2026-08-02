@@ -58,8 +58,8 @@ gzip_compress (const void *in, size_t inlen, char **out, size_t *outlen)
     return -1;
 
   /* Raw DEFLATE (window_bits <= 0 => no zlib header) at max level. */
-  mz_uint flags = (mz_uint)tdefl_create_comp_flags_from_zip_params (
-      MZ_UBER_COMPRESSION, -15, MZ_DEFAULT_STRATEGY);
+  mz_uint flags = (mz_uint)tdefl_create_comp_flags_from_zip_params (MZ_UBER_COMPRESSION, -15,
+                                                                    MZ_DEFAULT_STRATEGY);
 
   size_t deflate_len = 0;
 
@@ -93,8 +93,7 @@ gzip_compress (const void *in, size_t inlen, char **out, size_t *outlen)
 
   size_t pos = (size_t)10 + deflate_len;
 
-  uint32_t crc = (uint32_t)mz_crc32 (MZ_CRC32_INIT,
-                                     (const unsigned char *)in, inlen);
+  uint32_t crc = (uint32_t)mz_crc32 (MZ_CRC32_INIT, (const unsigned char *)in, inlen);
 
   uint32_t isize = (uint32_t)(inlen & 0xffffffffu);
 
@@ -108,7 +107,7 @@ gzip_compress (const void *in, size_t inlen, char **out, size_t *outlen)
   buf[pos++] = (unsigned char)((isize >> 16) & 0xff);
   buf[pos++] = (unsigned char)((isize >> 24) & 0xff);
 
-  *out    = (char *)buf;
+  *out = (char *)buf;
   *outlen = pos;
   return 0;
 }

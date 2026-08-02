@@ -23,18 +23,18 @@
 #define GENERIC_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-#include <stdio.h>
 #include <libmseed.h>
+#include <stdio.h>
 
 /* Key for B-trees */
 typedef uint64_t Key;
 
-extern int SplitStreamID (const char *streamid, char delim, int maxlength,
-                          char *id1, char *id2, char *id3, char *id4, char *id5, char *id6,
-                          char *type);
+extern int SplitStreamID (const char *streamid, char delim, int maxlength, char *id1, char *id2,
+                          char *id3, char *id4, char *id5, char *id6, char *type);
 extern nstime_t NSnow (void);
 extern uint64_t FNVhash64 (const char *str);
 extern int KeyCompare (const void *a, const void *b);
@@ -42,8 +42,7 @@ extern int IsAllDigits (const char *string);
 extern int HumanSizeString (uint64_t bytes, char *sizestring, size_t sizestringlen);
 extern int GlobMatch (const char *string, const char *pattern);
 extern int FinalizeMemStream (FILE *stream, char **buf, size_t *len);
-extern int AllocPrintf (char **strp, const char *fmt, ...)
-    __attribute__ ((format (printf, 2, 3)));
+extern int AllocPrintf (char **strp, const char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
 
 #ifdef __cplusplus
 }

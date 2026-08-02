@@ -21,33 +21,36 @@
 #define STACK_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #ifndef STACK_DATA_TYPE
 #define STACK_DATA_TYPE void *
 #endif
 
-typedef struct StackNode {
+typedef struct StackNode
+{
   STACK_DATA_TYPE data;
   struct StackNode *prev;
   struct StackNode *next;
 } StackNode;
 
-typedef struct Stack {
+typedef struct Stack
+{
   StackNode *top;
   StackNode *tail;
 } Stack;
 
 Stack *StackCreate (void);
-int    StackPush (Stack *theStack, STACK_DATA_TYPE newDataPtr);
-void  *StackPop (Stack *theStack);
-int    StackUnshift (Stack *theStack, STACK_DATA_TYPE newDataPtr);
-void  *StackShift (Stack *theStack);
-void   StackDestroy (Stack *theStack, void DestFunc(void *a));
-int    StackNotEmpty (Stack *theStack);
+int StackPush (Stack *theStack, STACK_DATA_TYPE newDataPtr);
+void *StackPop (Stack *theStack);
+int StackUnshift (Stack *theStack, STACK_DATA_TYPE newDataPtr);
+void *StackShift (Stack *theStack);
+void StackDestroy (Stack *theStack, void DestFunc (void *a));
+int StackNotEmpty (Stack *theStack);
 Stack *StackJoin (Stack *stack1, Stack *stack2);
-int    StackSort (Stack *theStack, int (*StackNodeCmp)(StackNode *a, StackNode *b));
+int StackSort (Stack *theStack, int (*StackNodeCmp) (StackNode *a, StackNode *b));
 
 #ifdef __cplusplus
 }

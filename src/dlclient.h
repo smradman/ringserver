@@ -23,12 +23,13 @@
 #define DLCLIENT_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-#include <pthread.h>
 #include "rbtree.h"
 #include "ringserver.h"
+#include <pthread.h>
 
 /* DataLink protocol version */
 #define DLPROTO_MAJOR 1
@@ -36,13 +37,15 @@ extern "C" {
 
 /* DataLink server capability flags */
 #define DLSERVERVER "RingServer/" VERSION
-#define DLMKSTR(x) DLMKSTR_(x)
+#define DLMKSTR(x) DLMKSTR_ (x)
 #define DLMKSTR_(x) #x
-#define DLSERVERPROTOCOLS "DLPROTO:" DLMKSTR(DLPROTO_MAJOR) "." DLMKSTR(DLPROTO_MINOR)
+#define DLSERVERPROTOCOLS "DLPROTO:" DLMKSTR (DLPROTO_MAJOR) "." DLMKSTR (DLPROTO_MINOR)
 #define DLCAPABILITIES_ID DLSERVERPROTOCOLS
-#define DLSERVER_ID "DataLink v" DLMKSTR(DLPROTO_MAJOR) "." DLMKSTR(DLPROTO_MINOR) " (" DLSERVERVER ") :: " DLCAPABILITIES_ID
+#define DLSERVER_ID                                                                 \
+  "DataLink v" DLMKSTR (DLPROTO_MAJOR) "." DLMKSTR (DLPROTO_MINOR) " (" DLSERVERVER \
+                                                                   ") :: " DLCAPABILITIES_ID
 
-#define DLMAXREGEXLEN  1048576  /* Maximum regex pattern size */
+#define DLMAXREGEXLEN 1048576 /* Maximum regex pattern size */
 
 /* Structure to hold DataLink specific parameters */
 typedef struct DLInfo

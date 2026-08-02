@@ -48,17 +48,17 @@ StackPush (Stack *theStack, STACK_DATA_TYPE newDataPtr)
 
   if (!theStack->top)
   {
-    newNode->prev  = NULL;
-    newNode->next  = NULL;
-    theStack->top  = newNode;
+    newNode->prev = NULL;
+    newNode->next = NULL;
+    theStack->top = newNode;
     theStack->tail = newNode;
   }
   else
   {
-    newNode->prev       = NULL;
-    newNode->next       = theStack->top;
+    newNode->prev = NULL;
+    newNode->next = theStack->top;
     theStack->top->prev = newNode;
-    theStack->top       = newNode;
+    theStack->top = newNode;
   }
 
   return 0;
@@ -73,8 +73,8 @@ StackPop (Stack *theStack)
   if (!theStack || !theStack->top)
     return NULL;
 
-  popData       = theStack->top->data;
-  oldNode       = theStack->top;
+  popData = theStack->top->data;
+  oldNode = theStack->top;
   theStack->top = theStack->top->next;
   free (oldNode);
 
@@ -102,17 +102,17 @@ StackUnshift (Stack *theStack, STACK_DATA_TYPE newDataPtr)
 
   if (!theStack->tail)
   {
-    newNode->prev  = NULL;
-    newNode->next  = NULL;
-    theStack->top  = newNode;
+    newNode->prev = NULL;
+    newNode->next = NULL;
+    theStack->top = newNode;
     theStack->tail = newNode;
   }
   else
   {
-    newNode->prev        = theStack->tail;
-    newNode->next        = NULL;
+    newNode->prev = theStack->tail;
+    newNode->next = NULL;
     theStack->tail->next = newNode;
-    theStack->tail       = newNode;
+    theStack->tail = newNode;
   }
 
   return 0;
@@ -127,8 +127,8 @@ StackShift (Stack *theStack)
   if (!theStack || !theStack->tail)
     return NULL;
 
-  shiftData      = theStack->tail->data;
-  oldNode        = theStack->tail;
+  shiftData = theStack->tail->data;
+  oldNode = theStack->tail;
   theStack->tail = theStack->tail->prev;
   free (oldNode);
 
@@ -186,8 +186,8 @@ StackJoin (Stack *stack1, Stack *stack2)
   else
   {
     stack1->tail->next = stack2->top;
-    stack2->top->prev  = stack1->tail;
-    stack1->tail       = stack2->tail;
+    stack2->top->prev = stack1->tail;
+    stack1->tail = stack2->tail;
     free (stack2);
     return (stack1);
   }
@@ -216,14 +216,14 @@ StackSort (Stack *theStack, int (*StackNodeCmp) (StackNode *a, StackNode *b))
   if (!theStack->top)
     return 0;
 
-  top         = theStack->top;
+  top = theStack->top;
   totalmerges = 0;
-  insize      = 1;
+  insize = 1;
 
   for (;;)
   {
-    p    = top;
-    top  = NULL;
+    p = top;
+    top = NULL;
     tail = NULL;
 
     nmerges = 0; /* count number of merges we do in this pass */
@@ -234,7 +234,7 @@ StackSort (Stack *theStack, int (*StackNodeCmp) (StackNode *a, StackNode *b))
       totalmerges++;
 
       /* step `insize' places along from p */
-      q     = p;
+      q = p;
       psize = 0;
       for (i = 0; i < insize; i++)
       {
@@ -283,7 +283,7 @@ StackSort (Stack *theStack, int (*StackNodeCmp) (StackNode *a, StackNode *b))
           top = e;
 
         e->prev = tail;
-        tail    = e;
+        tail = e;
       }
 
       /* now p has stepped `insize' places along, and q has too */
@@ -295,7 +295,7 @@ StackSort (Stack *theStack, int (*StackNodeCmp) (StackNode *a, StackNode *b))
     /* If we have done only one merge, we're finished. */
     if (nmerges <= 1) /* allow for nmerges==0, the empty list case */
     {
-      theStack->top  = top;
+      theStack->top = top;
       theStack->tail = tail;
 
       return totalmerges;

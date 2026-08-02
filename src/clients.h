@@ -23,17 +23,18 @@
 #define CLIENTS_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include <pthread.h>
-#include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 
-#include "ring.h"
-#include "rbtree.h"
-#include "ringserver.h"
 #include "dsarchive.h"
+#include "rbtree.h"
+#include "ring.h"
+#include "ringserver.h"
 
 /* Client types */
 typedef enum
@@ -47,104 +48,105 @@ typedef enum
 /* Client states */
 typedef enum
 {
-  STATE_COMMAND    = 0, /* Initial command state */
-  STATE_STATION    = 1, /* SeedLink STATION negotiation */
+  STATE_COMMAND = 0,    /* Initial command state */
+  STATE_STATION = 1,    /* SeedLink STATION negotiation */
   STATE_RINGCONFIG = 2, /* SeedLink ring configuration */
-  STATE_STREAM     = 3  /* Data streaming */
+  STATE_STREAM = 3      /* Data streaming */
 } ClientState;
 
 /* Conversion values */
 typedef enum
 {
-  CONVERT_NONE   = 0, /* No conversion */
+  CONVERT_NONE = 0,   /* No conversion */
   CONVERT_MSEED3 = 1, /* Convert to miniSEED v3 if possible */
 } Conversion;
 
 /* Client permission values */
 typedef enum
 {
-  NO_PERMISSION      = 0,
-  AUTHENTICATED      = 1u << 1,
+  NO_PERMISSION = 0,
+  AUTHENTICATED = 1u << 1,
   CONNECT_PERMISSION = 1u << 2,
-  WRITE_PERMISSION   = 1u << 3,
-  TRUST_PERMISSION   = 1u << 4,
+  WRITE_PERMISSION = 1u << 3,
+  TRUST_PERMISSION = 1u << 4,
 } Permissions;
 
 /* Authentication method */
 typedef enum
 {
-  AUTH_NONE     = 0,
+  AUTH_NONE = 0,
   AUTH_USERPASS = 1u << 0,
-  AUTH_JWT      = 1u << 1,
+  AUTH_JWT = 1u << 1,
 } AuthMethod;
 
 /* Connection information for client threads */
 typedef struct ClientInfo
 {
-  int         socket;       /* Socket descriptor */
-  uint8_t     tls;          /* Flag identifying TLS connection */
-  uint8_t     proxyv2;      /* Flag identifying PROXYv2 connection */
-  void       *tlsctx;       /* TLS context */
-  int         socketerr;    /* Socket error flag, -1: error, -2: orderly shutdown */
-  char       *sendbuf;      /* Client specific send buffer */
-  size_t      sendbufsize;  /* Length of send buffer in bytes */
-  char       *recvbuf;      /* Client specific receive buffer */
-  size_t      recvbufsize;  /* Length of receive buffer in bytes */
-  size_t      recvlength;   /* Length of data in recvbuf */
-  size_t      recvconsumed; /* Bytes of recvbuf that have been consumed */
-  nstime_t    recvstart;    /* Time when incomplete recv data first appeared, 0 when idle */
-  char        dlcommand[UINT8_MAX + 1]; /* DataLink command buffer */
-  char       *convertbuf;   /* Conversion buffer */
-  size_t      convertbuflen;/* Length of conversion buffer */
-  RingPacket  packet;       /* Client specific ring packet header */
-  struct sockaddr *addr;    /* client socket structure */
-  socklen_t   addrlen;      /* Length of client socket structure */
-  char        ipstr[100];   /* Client host IP address */
-  char        portstr[NI_MAXSERV]; /* Client port */
-  char        hostname[200];/* Client hostname, or IP is unresolvable */
-  char        clientid[256];/* Client identifier string */
-  char        serverport[NI_MAXSERV];  /* Server port (PROXY dest port when set) */
-  char        listenerport[NI_MAXSERV]; /* Listener port (never overwritten) */
-  ClientState state;        /* Client state flag */
-  ClientType  type;         /* Client type flag */
-  ListenProtocols protocols;/* Protocol flags for this client */
-  uint8_t     websocket;    /* Flag identifying websocket connection */
-  union {
+  int socket;                    /* Socket descriptor */
+  uint8_t tls;                   /* Flag identifying TLS connection */
+  uint8_t proxyv2;               /* Flag identifying PROXYv2 connection */
+  void *tlsctx;                  /* TLS context */
+  int socketerr;                 /* Socket error flag, -1: error, -2: orderly shutdown */
+  char *sendbuf;                 /* Client specific send buffer */
+  size_t sendbufsize;            /* Length of send buffer in bytes */
+  char *recvbuf;                 /* Client specific receive buffer */
+  size_t recvbufsize;            /* Length of receive buffer in bytes */
+  size_t recvlength;             /* Length of data in recvbuf */
+  size_t recvconsumed;           /* Bytes of recvbuf that have been consumed */
+  nstime_t recvstart;            /* Time when incomplete recv data first appeared, 0 when idle */
+  char dlcommand[UINT8_MAX + 1]; /* DataLink command buffer */
+  char *convertbuf;              /* Conversion buffer */
+  size_t convertbuflen;          /* Length of conversion buffer */
+  RingPacket packet;             /* Client specific ring packet header */
+  struct sockaddr *addr;         /* client socket structure */
+  socklen_t addrlen;             /* Length of client socket structure */
+  char ipstr[100];               /* Client host IP address */
+  char portstr[NI_MAXSERV];      /* Client port */
+  char hostname[200];            /* Client hostname, or IP is unresolvable */
+  char clientid[256];            /* Client identifier string */
+  char serverport[NI_MAXSERV];   /* Server port (PROXY dest port when set) */
+  char listenerport[NI_MAXSERV]; /* Listener port (never overwritten) */
+  ClientState state;             /* Client state flag */
+  ClientType type;               /* Client type flag */
+  ListenProtocols protocols;     /* Protocol flags for this client */
+  uint8_t websocket;             /* Flag identifying websocket connection */
+  union
+  {
     uint32_t one;
     uint8_t four[4];
-  } wsmask;                 /* Masking key for WebSocket message */
-  size_t      wsmaskidx;    /* Index for unmasking WebSocket message */
-  Permissions permissions;  /* Client permissions */
-  AuthMethod  auth_method;       /* Authentication method used */
-  char        auth_username[128]; /* Authenticated username, if available */
+  } wsmask;                      /* Masking key for WebSocket message */
+  size_t wsmaskidx;              /* Index for unmasking WebSocket message */
+  Permissions permissions;       /* Client permissions */
+  AuthMethod auth_method;        /* Authentication method used */
+  char auth_username[128];       /* Authenticated username, if available */
   _Atomic (RingReader *) reader; /* Ring reader parameters */
-  nstime_t    conntime;     /* Client connect time */
-  char       *allowedstr;   /* Regular expression string for allowed streams */
-  char       *forbiddenstr; /* Regular expression string for forbidden streams */
-  char       *matchstr;     /* Regular expression string to match streams */
-  char       *rejectstr;    /* Regular expression string to reject streams */
-  nstime_t    starttime;    /* Requested start time */
-  nstime_t    endtime;      /* Requested end time */
-  DataStream *mswrite;      /* miniSEED data write parameters */
-  RBTree     *streams;      /* Tracking of streams transferred */
-  pthread_mutex_t streams_lock; /* Mutex lock for streams tree */
-  _Atomic int streamscount;     /* Count of streams in tree */
-  _Atomic nstime_t lastxchange; /* Time of last data transmission or reception */
-  _Atomic int percentlag;       /* Percent lag of client in ring buffer */
-  _Atomic uint64_t txpackets0;  /* Track total number of packets transmitted to client */
-  uint64_t txpackets1;          /* Track total number of packets transmitted to client */
-  _Atomic double txpacketrate;  /* Track rate of packet transmission */
-  _Atomic uint64_t txbytes0;    /* Track total number of data bytes transmitted */
-  uint64_t txbytes1;            /* Track total number of data bytes transmitted */
-  _Atomic double txbyterate;    /* Track rate of data byte transmission */
-  _Atomic uint64_t rxpackets0;  /* Track total number of packets received from client */
-  uint64_t rxpackets1;          /* Track total number of packets received from client */
-  _Atomic double rxpacketrate;  /* Track rate of packet reception */
-  _Atomic uint64_t rxbytes0;    /* Track total number of data bytes received */
-  uint64_t rxbytes1;            /* Track total number of data bytes received */
-  _Atomic double rxbyterate;    /* Track rate of data byte reception */
-  nstime_t ratetime;            /* Time stamp for TX and RX rate calculations */
-  void *extinfo;                /* Extended client info, protocol specific */
+  nstime_t conntime;             /* Client connect time */
+  char *allowedstr;              /* Regular expression string for allowed streams */
+  char *forbiddenstr;            /* Regular expression string for forbidden streams */
+  char *matchstr;                /* Regular expression string to match streams */
+  char *rejectstr;               /* Regular expression string to reject streams */
+  nstime_t starttime;            /* Requested start time */
+  nstime_t endtime;              /* Requested end time */
+  DataStream *mswrite;           /* miniSEED data write parameters */
+  RBTree *streams;               /* Tracking of streams transferred */
+  pthread_mutex_t streams_lock;  /* Mutex lock for streams tree */
+  _Atomic int streamscount;      /* Count of streams in tree */
+  _Atomic nstime_t lastxchange;  /* Time of last data transmission or reception */
+  _Atomic int percentlag;        /* Percent lag of client in ring buffer */
+  _Atomic uint64_t txpackets0;   /* Track total number of packets transmitted to client */
+  uint64_t txpackets1;           /* Track total number of packets transmitted to client */
+  _Atomic double txpacketrate;   /* Track rate of packet transmission */
+  _Atomic uint64_t txbytes0;     /* Track total number of data bytes transmitted */
+  uint64_t txbytes1;             /* Track total number of data bytes transmitted */
+  _Atomic double txbyterate;     /* Track rate of data byte transmission */
+  _Atomic uint64_t rxpackets0;   /* Track total number of packets received from client */
+  uint64_t rxpackets1;           /* Track total number of packets received from client */
+  _Atomic double rxpacketrate;   /* Track rate of packet reception */
+  _Atomic uint64_t rxbytes0;     /* Track total number of data bytes received */
+  uint64_t rxbytes1;             /* Track total number of data bytes received */
+  _Atomic double rxbyterate;     /* Track rate of data byte reception */
+  nstime_t ratetime;             /* Time stamp for TX and RX rate calculations */
+  void *extinfo;                 /* Extended client info, protocol specific */
 } ClientInfo;
 
 /* Structure used as the data for B-tree of stream tracking.
@@ -168,8 +170,8 @@ extern void *ClientThread (void *arg);
 
 extern int SendData (ClientInfo *cinfo, void *buffer, size_t buflen, int no_wsframe);
 
-extern int SendDataMB (ClientInfo *cinfo, void *buffer[], size_t buflen[],
-                       int bufcount, int no_wsframe);
+extern int SendDataMB (ClientInfo *cinfo, void *buffer[], size_t buflen[], int bufcount,
+                       int no_wsframe);
 
 extern int RecvData (ClientInfo *cinfo, void *buffer, size_t requested, int fulfill);
 
@@ -179,12 +181,10 @@ extern int RecvLine (ClientInfo *cinfo);
 
 extern int PollSocket (int socket, int readability, int writability, int timeout_ms);
 
-extern StreamNode *GetStreamNode (RBTree *tree, pthread_mutex_t *plock,
-                                  char *streamid, int streams_count,
-                                  int *new);
+extern StreamNode *GetStreamNode (RBTree *tree, pthread_mutex_t *plock, char *streamid,
+                                  int streams_count, int *new);
 
-extern int AddToString (char **string, char *source, char *delim,
-                        size_t where, size_t maxlen);
+extern int AddToString (char **string, char *source, char *delim, size_t where, size_t maxlen);
 
 #ifdef __cplusplus
 }

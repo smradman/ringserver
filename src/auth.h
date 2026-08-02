@@ -23,14 +23,14 @@
 #define AUTH_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include "clients.h"
 
 /* Returns 0 on authentication success, 1 on authentication denial, -1 on error */
-extern int PerformAuth (ClientInfo *cinfo,
-                        const char *username, const char *password,
+extern int PerformAuth (ClientInfo *cinfo, const char *username, const char *password,
                         const char *jwtoken);
 
 #ifdef __cplusplus

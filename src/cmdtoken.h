@@ -44,11 +44,11 @@
 
 typedef struct CmdToken
 {
-  char  buf[CMDTOKEN_MAX_LINE];        /* mutable working copy; tokens null-terminated here */
-  char  orig[CMDTOKEN_MAX_LINE];       /* unmodified copy; used by cmdtoken_rest_after() */
-  int   argc;                          /* number of tokens found; valid argv indices are [0, argc) */
-  char *argv[CMDTOKEN_MAX_TOKENS];     /* pointers into buf */
-  int   overflow;                      /* 1 if MAX_TOKENS was reached before end of line */
+  char buf[CMDTOKEN_MAX_LINE];     /* mutable working copy; tokens null-terminated here */
+  char orig[CMDTOKEN_MAX_LINE];    /* unmodified copy; used by cmdtoken_rest_after() */
+  int argc;                        /* number of tokens found; valid argv indices are [0, argc) */
+  char *argv[CMDTOKEN_MAX_TOKENS]; /* pointers into buf */
+  int overflow;                    /* 1 if MAX_TOKENS was reached before end of line */
 } CmdToken;
 
 int cmdtoken_parse (CmdToken *cmd, const char *line);

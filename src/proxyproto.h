@@ -23,7 +23,8 @@
 #define PROXYPROTO_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include <stdint.h>
@@ -47,10 +48,8 @@ extern "C" {
  *   1  - LOCAL command; addr/addrlen unchanged
  *  -1  - error (bad signature, unsupported version, timeout, I/O error)
  */
-extern int ProxyProtocolV2Read (int socket, int timeout_ms,
-                                struct sockaddr_storage *source_addr,
-                                socklen_t *source_addrlen,
-                                uint16_t *dest_port);
+extern int ProxyProtocolV2Read (int socket, int timeout_ms, struct sockaddr_storage *source_addr,
+                                socklen_t *source_addrlen, uint16_t *dest_port);
 
 #ifdef __cplusplus
 }

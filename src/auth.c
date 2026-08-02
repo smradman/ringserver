@@ -49,9 +49,8 @@
 #define AUTH_DENIED_DELAY_SEC 2
 
 static int ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string);
-static int ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
-                               char *output, size_t output_size,
-                               char *error, size_t error_size);
+static int ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds, char *output,
+                               size_t output_size, char *error, size_t error_size);
 
 /**************************************************************************
  * PerformAuth:
@@ -68,19 +67,17 @@ static int ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
  * @return: 0 on authentication success, 1 on authentication denial, -1 on error.
  **************************************************************************/
 int
-PerformAuth (ClientInfo *cinfo,
-             const char *username, const char *password,
-             const char *jwtoken)
+PerformAuth (ClientInfo *cinfo, const char *username, const char *password, const char *jwtoken)
 {
   char username_env[1024] = {0};
   char password_env[1024] = {0};
-  char jwtoken_env[1024]  = {0};
+  char jwtoken_env[1024] = {0};
 #define OUTPUT_BUFFER_SIZE 4096
   char output[OUTPUT_BUFFER_SIZE] = {0};
-  char error[OUTPUT_BUFFER_SIZE]  = {0};
+  char error[OUTPUT_BUFFER_SIZE] = {0};
 
   char *envp[4] = {NULL, NULL, NULL, NULL};
-  int envidx    = 0;
+  int envidx = 0;
 
   int status = -1;
 
@@ -93,9 +90,11 @@ PerformAuth (ClientInfo *cinfo,
   /* Set environment variables for auth program.  Truncation is fatal */
   if (username && username[0])
   {
-    if (snprintf (username_env, sizeof (username_env), "AUTH_USERNAME=%s", username) >= (int)sizeof (username_env))
+    if (snprintf (username_env, sizeof (username_env), "AUTH_USERNAME=%s", username) >=
+        (int)sizeof (username_env))
     {
-      lprintf (0, "[%s] AUTH_USERNAME too large (%zu bytes), cannot authenticate", cinfo->hostname, strlen (username));
+      lprintf (0, "[%s] AUTH_USERNAME too large (%zu bytes), cannot authenticate", cinfo->hostname,
+               strlen (username));
       return -1;
     }
     envp[envidx++] = username_env;
@@ -103,9 +102,11 @@ PerformAuth (ClientInfo *cinfo,
 
   if (password && password[0])
   {
-    if (snprintf (password_env, sizeof (password_env), "AUTH_PASSWORD=%s", password) >= (int)sizeof (password_env))
+    if (snprintf (password_env, sizeof (password_env), "AUTH_PASSWORD=%s", password) >=
+        (int)sizeof (password_env))
     {
-      lprintf (0, "[%s] AUTH_PASSWORD too large (%zu bytes), cannot authenticate", cinfo->hostname, strlen (password));
+      lprintf (0, "[%s] AUTH_PASSWORD too large (%zu bytes), cannot authenticate", cinfo->hostname,
+               strlen (password));
       return -1;
     }
     envp[envidx++] = password_env;
@@ -113,18 +114,19 @@ PerformAuth (ClientInfo *cinfo,
 
   if (jwtoken && jwtoken[0])
   {
-    if (snprintf (jwtoken_env, sizeof (jwtoken_env), "AUTH_JWTOKEN=%s", jwtoken) >= (int)sizeof (jwtoken_env))
+    if (snprintf (jwtoken_env, sizeof (jwtoken_env), "AUTH_JWTOKEN=%s", jwtoken) >=
+        (int)sizeof (jwtoken_env))
     {
-      lprintf (0, "[%s] AUTH_JWTOKEN too large (%zu bytes), cannot authenticate", cinfo->hostname, strlen (jwtoken));
+      lprintf (0, "[%s] AUTH_JWTOKEN too large (%zu bytes), cannot authenticate", cinfo->hostname,
+               strlen (jwtoken));
       return -1;
     }
     envp[envidx++] = jwtoken_env;
   }
 
   /* Execute auth program */
-  status = ExecuteAuthProgram (envp, config.auth.timeout_sec,
-                               output, sizeof (output),
-                               error, sizeof (error));
+  status = ExecuteAuthProgram (envp, config.auth.timeout_sec, output, sizeof (output), error,
+                               sizeof (error));
   if (status != 0)
   {
     lprintf (0, "[%s] Error executing auth program: %s", cinfo->hostname, config.auth.program);
@@ -225,15 +227,15 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
   size_t pattern_size;
   char *ptr;
 
-  Permissions new_permissions          = NO_PERMISSION;
-  char *new_allowedstr                 = NULL;
-  char *new_forbiddenstr               = NULL;
-  pcre2_code *new_allowed_code         = NULL;
-  pcre2_match_data *new_allowed_data   = NULL;
-  pcre2_code *new_forbidden_code       = NULL;
+  Permissions new_permissions = NO_PERMISSION;
+  char *new_allowedstr = NULL;
+  char *new_forbiddenstr = NULL;
+  pcre2_code *new_allowed_code = NULL;
+  pcre2_match_data *new_allowed_data = NULL;
+  pcre2_code *new_forbidden_code = NULL;
   pcre2_match_data *new_forbidden_data = NULL;
-  int have_allowed                    = 0;
-  int have_forbidden                  = 0;
+  int have_allowed = 0;
+  int have_forbidden = 0;
 
   if (!cinfo || !json_string)
   {
@@ -270,8 +272,7 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
 
   /* Build a compound regex pattern for any allowed streams returned */
   if ((streams_array = yyjson_obj_get (root, "allowed_streams")) &&
-      yyjson_get_type (streams_array) == YYJSON_TYPE_ARR &&
-      yyjson_get_len (streams_array) > 0)
+      yyjson_get_type (streams_array) == YYJSON_TYPE_ARR && yyjson_get_len (streams_array) > 0)
   {
     have_allowed = 1;
     pattern_size = 0;
@@ -334,15 +335,15 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
     /* Compile regular expression */
     if (UpdatePattern (&new_allowed_code, &new_allowed_data, new_allowedstr, "ring allowed") < 0)
     {
-      lprintf (0, "[%s] Error compiling allowed streams pattern '%s'", cinfo->hostname, new_allowedstr);
+      lprintf (0, "[%s] Error compiling allowed streams pattern '%s'", cinfo->hostname,
+               new_allowedstr);
       goto error;
     }
   }
 
   /* Build a compound regex pattern for any forbidden streams returned */
   if ((streams_array = yyjson_obj_get (root, "forbidden_streams")) &&
-      yyjson_get_type (streams_array) == YYJSON_TYPE_ARR &&
-      yyjson_get_len (streams_array) > 0)
+      yyjson_get_type (streams_array) == YYJSON_TYPE_ARR && yyjson_get_len (streams_array) > 0)
   {
     have_forbidden = 1;
     pattern_size = 0;
@@ -401,9 +402,11 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
     }
 
     /* Compile regular expression */
-    if (UpdatePattern (&new_forbidden_code, &new_forbidden_data, new_forbiddenstr, "ring forbidden") < 0)
+    if (UpdatePattern (&new_forbidden_code, &new_forbidden_data, new_forbiddenstr,
+                       "ring forbidden") < 0)
     {
-      lprintf (0, "[%s] Error compiling forbidden streams pattern '%s'", cinfo->hostname, new_forbiddenstr);
+      lprintf (0, "[%s] Error compiling forbidden streams pattern '%s'", cinfo->hostname,
+               new_forbiddenstr);
       goto error;
     }
   }
@@ -429,7 +432,7 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
       pcre2_code_free (cinfo->reader->allowed);
     if (cinfo->reader->allowed_data)
       pcre2_match_data_free (cinfo->reader->allowed_data);
-    cinfo->reader->allowed      = new_allowed_code;
+    cinfo->reader->allowed = new_allowed_code;
     cinfo->reader->allowed_data = new_allowed_data;
   }
 
@@ -442,7 +445,7 @@ ApplyPermissionsJSON (ClientInfo *cinfo, const char *json_string)
       pcre2_code_free (cinfo->reader->forbidden);
     if (cinfo->reader->forbidden_data)
       pcre2_match_data_free (cinfo->reader->forbidden_data);
-    cinfo->reader->forbidden      = new_forbidden_code;
+    cinfo->reader->forbidden = new_forbidden_code;
     cinfo->reader->forbidden_data = new_forbidden_data;
   }
 
@@ -480,25 +483,24 @@ error:
  * @return: exit status of the program, 0 on success, non-zero on error.
  **************************************************************************/
 static int
-ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
-                    char *output, size_t output_size,
+ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds, char *output, size_t output_size,
                     char *error, size_t error_size)
 {
   int stdout_pipe[2] = {-1, -1};
   int stderr_pipe[2] = {-1, -1};
   posix_spawn_file_actions_t actions;
   int actions_initialized = 0;
-  int exit_status         = -1;
-  pid_t pid               = -1;
+  int exit_status = -1;
+  pid_t pid = -1;
   int status;
-  size_t out_written  = 0;
-  size_t err_written  = 0;
+  size_t out_written = 0;
+  size_t err_written = 0;
   size_t out_overflow = 0;
   size_t err_overflow = 0;
-  char *auth_program  = NULL;
-  char **auth_argv    = NULL;
-  int have_program    = 0;
-  int argv_copy_ok    = 1;
+  char *auth_program = NULL;
+  char **auth_argv = NULL;
+  int have_program = 0;
+  int argv_copy_ok = 1;
 
   if (!envp || !output || !error)
   {
@@ -597,7 +599,8 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
   /* Spawn the process */
   if ((status = posix_spawn (&pid, auth_program, &actions, NULL, auth_argv, envp)) != 0)
   {
-    lprintf (0, "%s() Could not spawn process, status: %d, %s", __func__, status, strerror (status));
+    lprintf (0, "%s() Could not spawn process, status: %d, %s", __func__, status,
+             strerror (status));
     pid = -1;
     goto cleanup;
   }
@@ -620,8 +623,8 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
     clock_gettime (CLOCK_MONOTONIC, &deadline);
     deadline.tv_sec += timeout_seconds;
 
-    int out_open  = 1;
-    int err_open  = 1;
+    int out_open = 1;
+    int err_open = 1;
     int timed_out = 0;
 
     while (out_open || err_open)
@@ -634,27 +637,27 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
 
       if (remaining_ms <= 0)
       {
-        lprintf (1, "%s() Process (%s) did not exit after %u seconds, killing",
-                 __func__, auth_program, timeout_seconds);
+        lprintf (1, "%s() Process (%s) did not exit after %u seconds, killing", __func__,
+                 auth_program, timeout_seconds);
         kill (pid, SIGKILL);
         timed_out = 1;
         break;
       }
 
       struct pollfd fds[2];
-      int nfds    = 0;
+      int nfds = 0;
       int out_idx = -1;
 
       if (out_open)
       {
-        out_idx          = nfds;
-        fds[nfds].fd     = stdout_pipe[0];
+        out_idx = nfds;
+        fds[nfds].fd = stdout_pipe[0];
         fds[nfds].events = POLLIN;
         nfds++;
       }
       if (err_open)
       {
-        fds[nfds].fd     = stderr_pipe[0];
+        fds[nfds].fd = stderr_pipe[0];
         fds[nfds].events = POLLIN;
         nfds++;
       }
@@ -677,10 +680,10 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
         if (!(fds[pi].revents & (POLLIN | POLLHUP | POLLERR)))
           continue;
 
-        int is_out       = (pi == out_idx);
-        char *buf        = is_out ? output : error;
-        size_t bufsz     = is_out ? output_size : error_size;
-        size_t *written  = is_out ? &out_written : &err_written;
+        int is_out = (pi == out_idx);
+        char *buf = is_out ? output : error;
+        size_t bufsz = is_out ? output_size : error_size;
+        size_t *written = is_out ? &out_written : &err_written;
         size_t *overflow = is_out ? &out_overflow : &err_overflow;
 
         for (;;)
@@ -694,8 +697,8 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
               continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK)
               break; /* no more data right now */
-            lprintf (0, "%s() Error reading %s from auth program: %s",
-                     __func__, is_out ? "stdout" : "stderr", strerror (errno));
+            lprintf (0, "%s() Error reading %s from auth program: %s", __func__,
+                     is_out ? "stdout" : "stderr", strerror (errno));
             break;
           }
 
@@ -706,18 +709,18 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
             if (is_out)
             {
               stdout_pipe[0] = -1;
-              out_open       = 0;
+              out_open = 0;
             }
             else
             {
               stderr_pipe[0] = -1;
-              err_open       = 0;
+              err_open = 0;
             }
             break;
           }
 
           /* Append to buffer up to cap, count overflow past cap */
-          size_t space   = (*written < bufsz - 1) ? (bufsz - 1 - *written) : 0;
+          size_t space = (*written < bufsz - 1) ? (bufsz - 1 - *written) : 0;
           size_t to_copy = (nr < (ssize_t)space) ? (size_t)nr : space;
 
           if (to_copy > 0)
@@ -737,11 +740,11 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
     pid = -1;
 
     if (out_overflow > 0)
-      lprintf (1, "%s() Auth program stdout truncated (%zu bytes past %zu-byte buffer)",
-               __func__, out_overflow, output_size - 1);
+      lprintf (1, "%s() Auth program stdout truncated (%zu bytes past %zu-byte buffer)", __func__,
+               out_overflow, output_size - 1);
     if (err_overflow > 0)
-      lprintf (1, "%s() Auth program stderr truncated (%zu bytes past %zu-byte buffer)",
-               __func__, err_overflow, error_size - 1);
+      lprintf (1, "%s() Auth program stderr truncated (%zu bytes past %zu-byte buffer)", __func__,
+               err_overflow, error_size - 1);
 
     if (timed_out)
       goto cleanup;
@@ -749,13 +752,13 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
 
   /* NUL-terminate captured output */
   output[out_written] = '\0';
-  error[err_written]  = '\0';
+  error[err_written] = '\0';
 
   /* Determine exit status */
   if (WIFEXITED (status))
   {
-    lprintf (3, "%s() Process (%s) exited with status %d",
-             __func__, auth_program, WEXITSTATUS (status));
+    lprintf (3, "%s() Process (%s) exited with status %d", __func__, auth_program,
+             WEXITSTATUS (status));
 
     if (error[0])
       lprintf (0, "%s() Error from auth program: %s", __func__, error);
@@ -764,8 +767,8 @@ ExecuteAuthProgram (char *envp[], uint32_t timeout_seconds,
   }
   else if (WIFSIGNALED (status))
   {
-    lprintf (3, "%s() Process (%s) terminated by signal %d",
-             __func__, auth_program, WTERMSIG (status));
+    lprintf (3, "%s() Process (%s) terminated by signal %d", __func__, auth_program,
+             WTERMSIG (status));
 
     if (error[0])
       lprintf (0, "%s() Error from auth program: %s", __func__, error);

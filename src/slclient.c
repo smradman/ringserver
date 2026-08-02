@@ -82,18 +82,16 @@ static int HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd);
 static int HandleInfo_v3 (ClientInfo *cinfo, CmdToken *cmd);
 static int HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd);
 static int SendReply (ClientInfo *cinfo, char *reply, ErrorCode code, char *extreply);
-static int SendPacket (uint64_t pktid, char *payload, uint32_t payloadlen,
-                       const char *staid, char format, char subformat, void *vcinfo);
-static int SendRecord (RingPacket *packet, char *record, uint32_t reclen,
-                       void *vcinfo);
+static int SendPacket (uint64_t pktid, char *payload, uint32_t payloadlen, const char *staid,
+                       char format, char subformat, void *vcinfo);
+static int SendRecord (RingPacket *packet, char *record, uint32_t reclen, void *vcinfo);
 static void SendInfoRecord (char *record, uint32_t reclen, void *vcinfo);
 static void FreeReqStationID (void *rbnode);
 static int StaKeyCompare (const void *a, const void *b);
 static ReqStationID *GetReqStationID (RBTree *tree, char *staid);
-static int StationToRegex (const char *staid, Selector *selector,
-                           char **matchregex, char **rejectregex);
-static int SelectToRegex (const char *staid, const char *select,
-                          const char *label, char **regex);
+static int StationToRegex (const char *staid, Selector *selector, char **matchregex,
+                           char **rejectregex);
+static int SelectToRegex (const char *staid, const char *select, const char *label, char **regex);
 
 /***********************************************************************
  * SLHandleCmd:
@@ -178,8 +176,7 @@ SLHandleCmd (ClientInfo *cinfo)
   }
 
   /* Negotiation if expecting commands */
-  else if (cinfo->state == STATE_COMMAND ||
-           cinfo->state == STATE_STATION)
+  else if (cinfo->state == STATE_COMMAND || cinfo->state == STATE_STATION)
   {
     int rv = HandleNegotiation (cinfo, &cmd);
     if (rv < 0)
@@ -201,8 +198,7 @@ SLHandleCmd (ClientInfo *cinfo)
     /* Check for authentication requirement */
     if (config.auth.required && !(cinfo->permissions & AUTHENTICATED))
     {
-      lprintf (1, "[%s] Streaming requested from client without authentication",
-               cinfo->hostname);
+      lprintf (1, "[%s] Streaming requested from client without authentication", cinfo->hostname);
       SendReply (cinfo, "ERROR", ERROR_AUTH, "Authentication required for streaming");
       return -1;
     }
@@ -212,7 +208,7 @@ SLHandleCmd (ClientInfo *cinfo)
     /* If no stations specified convert any global selectors to regexes */
     if (slinfo->stationcount == 0 && slinfo->selectors)
     {
-      char *newmatch  = NULL;
+      char *newmatch = NULL;
       char *newreject = NULL;
 
       if (StationToRegex (NULL, slinfo->selectors, &newmatch, &newreject))
@@ -243,13 +239,13 @@ SLHandleCmd (ClientInfo *cinfo)
       Stack *stack;
       RBNode *rbnode;
       nstime_t newesttime = NSTUNSET;
-      char *newmatch      = NULL;
-      char *newreject     = NULL;
+      char *newmatch = NULL;
+      char *newreject = NULL;
 
       /* Save reader position values to restore after any errors */
       int64_t saved_pktoffset = cinfo->reader->pktoffset;
-      uint64_t saved_pktid    = cinfo->reader->pktid;
-      nstime_t saved_pkttime  = cinfo->reader->pkttime;
+      uint64_t saved_pktid = cinfo->reader->pktid;
+      nstime_t saved_pkttime = cinfo->reader->pkttime;
 
       stack = StackCreate ();
       RBBuildStack (slinfo->stations, stack);
@@ -259,8 +255,7 @@ SLHandleCmd (ClientInfo *cinfo)
         stationid = (ReqStationID *)rbnode->data;
 
         /* Configure regexes for this station */
-        if (StationToRegex ((const char *)rbnode->key, stationid->selectors,
-                            &newmatch, &newreject))
+        if (StationToRegex ((const char *)rbnode->key, stationid->selectors, &newmatch, &newreject))
         {
           lprintf (0, "[%s] Error with StationToRegex", cinfo->hostname);
           SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error with StationToRegex()");
@@ -298,17 +293,19 @@ SLHandleCmd (ClientInfo *cinfo)
 
         if (stationid->packetid <= RINGID_MAXIMUM)
         {
-          if (stationid->packetid > 0 &&
-              RingRead (cinfo->reader, stationid->packetid - 1, &cinfo->packet, 0) == stationid->packetid - 1)
+          if (stationid->packetid > 0 && RingRead (cinfo->reader, stationid->packetid - 1,
+                                                   &cinfo->packet, 0) == stationid->packetid - 1)
           {
             if (stationid->datastart == NSTUNSET ||
-                (int64_t)(MS_NSTIME2EPOCH (stationid->datastart)) == (int64_t)(MS_NSTIME2EPOCH (cinfo->packet.datastart)))
+                (int64_t)(MS_NSTIME2EPOCH (stationid->datastart)) ==
+                    (int64_t)(MS_NSTIME2EPOCH (cinfo->packet.datastart)))
               validated = 1;
           }
           /* If the last received packet is gone, accept the requested packet
            * itself when it exists and no validation time was supplied */
           else if (stationid->datastart == NSTUNSET &&
-                   RingRead (cinfo->reader, stationid->packetid, &cinfo->packet, 0) == stationid->packetid)
+                   RingRead (cinfo->reader, stationid->packetid, &cinfo->packet, 0) ==
+                       stationid->packetid)
           {
             validated = 1;
           }
@@ -318,7 +315,7 @@ SLHandleCmd (ClientInfo *cinfo)
         if (validated && (newesttime == NSTUNSET || cinfo->packet.pkttime > newesttime))
         {
           slinfo->startid = stationid->packetid;
-          newesttime      = cinfo->packet.pkttime;
+          newesttime = cinfo->packet.pkttime;
         }
       }
 
@@ -326,8 +323,8 @@ SLHandleCmd (ClientInfo *cinfo)
 
       /* Restore reader position */
       cinfo->reader->pktoffset = saved_pktoffset;
-      cinfo->reader->pktid     = saved_pktid;
-      cinfo->reader->pkttime   = saved_pkttime;
+      cinfo->reader->pktid = saved_pktid;
+      cinfo->reader->pkttime = saved_pkttime;
 
       /* Publish under cthreads_lock: INFO CONNECTIONS reads matchstr/rejectstr
        * while holding this lock (infojson.c). */
@@ -347,9 +344,10 @@ SLHandleCmd (ClientInfo *cinfo)
     {
       if (RingMatch (cinfo->reader, cinfo->matchstr) < 0)
       {
-        lprintf (0, "[%s] Error with RingMatch for (%lu bytes) '%s'",
-                 cinfo->hostname, (unsigned long)strlen (cinfo->matchstr), cinfo->matchstr);
-        SendReply (cinfo, "ERROR", ERROR_INTERNAL, "cannot compile matches (combined matches too large?)");
+        lprintf (0, "[%s] Error with RingMatch for (%lu bytes) '%s'", cinfo->hostname,
+                 (unsigned long)strlen (cinfo->matchstr), cinfo->matchstr);
+        SendReply (cinfo, "ERROR", ERROR_INTERNAL,
+                   "cannot compile matches (combined matches too large?)");
         return -1;
       }
     }
@@ -359,9 +357,10 @@ SLHandleCmd (ClientInfo *cinfo)
     {
       if (RingReject (cinfo->reader, cinfo->rejectstr) < 0)
       {
-        lprintf (0, "[%s] Error with RingReject for (%lu bytes) '%s'",
-                 cinfo->hostname, (unsigned long)strlen (cinfo->rejectstr), cinfo->rejectstr);
-        SendReply (cinfo, "ERROR", ERROR_INTERNAL, "cannot compile rejections (combined rejection too large?)");
+        lprintf (0, "[%s] Error with RingReject for (%lu bytes) '%s'", cinfo->hostname,
+                 (unsigned long)strlen (cinfo->rejectstr), cinfo->rejectstr);
+        SendReply (cinfo, "ERROR", ERROR_INTERNAL,
+                   "cannot compile rejections (combined rejection too large?)");
         return -1;
       }
     }
@@ -373,8 +372,8 @@ SLHandleCmd (ClientInfo *cinfo)
 
       if (retval == RINGID_ERROR)
       {
-        lprintf (0, "[%s] Error with RingPositionBefore for %" PRIu64,
-                 cinfo->hostname, slinfo->startid);
+        lprintf (0, "[%s] Error with RingPositionBefore for %" PRIu64, cinfo->hostname,
+                 slinfo->startid);
         return -1;
       }
       else if (retval == RINGID_NONE)
@@ -384,8 +383,8 @@ SLHandleCmd (ClientInfo *cinfo)
       }
       else
       {
-        lprintf (2, "[%s] Positioned ring to deliver packet ID: %" PRIu64,
-                 cinfo->hostname, slinfo->startid);
+        lprintf (2, "[%s] Positioned ring to deliver packet ID: %" PRIu64, cinfo->hostname,
+                 slinfo->startid);
       }
     }
 
@@ -393,7 +392,8 @@ SLHandleCmd (ClientInfo *cinfo)
     if (cinfo->starttime != NSTUNSET && slinfo->startid == RINGID_NONE)
     {
       char timestr[32];
-      ms_nstime2timestr_n (cinfo->starttime, timestr, sizeof (timestr), ISOMONTHDAY_Z, NANO_MICRO_NONE);
+      ms_nstime2timestr_n (cinfo->starttime, timestr, sizeof (timestr), ISOMONTHDAY_Z,
+                           NANO_MICRO_NONE);
 
       /* Position ring according to start time, use reverse search if limited */
       if (config.timewinlimit == 1.0)
@@ -415,21 +415,24 @@ SLHandleCmd (ClientInfo *cinfo)
 
       if (readid == RINGID_ERROR)
       {
-        lprintf (0, "[%s] Error with RingAfter[Rev] time: %s [%" PRId64 "]",
-                 cinfo->hostname, timestr, cinfo->starttime);
-        SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error positioning reader to start of time window");
+        lprintf (0, "[%s] Error with RingAfter[Rev] time: %s [%" PRId64 "]", cinfo->hostname,
+                 timestr, cinfo->starttime);
+        SendReply (cinfo, "ERROR", ERROR_INTERNAL,
+                   "Error positioning reader to start of time window");
         return -1;
       }
       else if (readid == RINGID_NONE)
       {
-        lprintf (2, "[%s] No packet found for RingAfter time: %s [%" PRId64 "], positioning to next packet",
+        lprintf (2,
+                 "[%s] No packet found for RingAfter time: %s [%" PRId64
+                 "], positioning to next packet",
                  cinfo->hostname, timestr, cinfo->starttime);
         cinfo->reader->pktid = RINGID_NEXT;
       }
       else
       {
-        lprintf (3, "[%s] Positioned to packet %" PRIu64 ", first after: %s",
-                 cinfo->hostname, readid, timestr);
+        lprintf (3, "[%s] Positioned to packet %" PRIu64 ", first after: %s", cinfo->hostname,
+                 readid, timestr);
       }
     }
 
@@ -441,9 +444,8 @@ SLHandleCmd (ClientInfo *cinfo)
 
     lprintf (1, "[%s] Configured ring parameters", cinfo->hostname);
 
-    WriteAccessLog (cinfo, "command",
-                    (slinfo->dialup) ? "FETCH" : "DATA",
-                    NULL, cinfo->matchstr, cinfo->rejectstr);
+    WriteAccessLog (cinfo, "command", (slinfo->dialup) ? "FETCH" : "DATA", NULL, cinfo->matchstr,
+                    cinfo->rejectstr);
 
     cinfo->state = STATE_STREAM;
   } /* Done configuring ring parameters */
@@ -466,10 +468,10 @@ SLFindFilter (const SLInfo *slinfo, const char *streamid)
   ReqStationID *reqstaid;
   RBNode *rbnode;
   Stack *stack;
-  char *stationid   = NULL;
-  char *selectid    = NULL;
+  char *stationid = NULL;
+  char *selectid = NULL;
   char *streamlabel = NULL;
-  char *ptr         = NULL;
+  char *ptr = NULL;
 
   if (!slinfo || !streamid)
     return CONVERT_NONE;
@@ -492,7 +494,7 @@ SLFindFilter (const SLInfo *slinfo, const char *streamid)
       if ((ptr = strchr (ptr + 1, '_')))
       {
         selectid = ptr + 1;
-        *ptr     = '\0';
+        *ptr = '\0';
 
         /* Find the first '/' which separates select ID from format (/MSEED or /MSEED3) */
         if ((ptr = strchr (selectid, '/')))
@@ -527,8 +529,8 @@ SLFindFilter (const SLInfo *slinfo, const char *streamid)
 
         while (selector)
         {
-          int selectid_matches = (selector->string[0] == '\0') ||
-                                 GlobMatch (selectid, selector->string);
+          int selectid_matches =
+              (selector->string[0] == '\0') || GlobMatch (selectid, selector->string);
 
           /* Match label: empty selector label matches only unlabeled streams;
            * a non-empty selector label must match the stream's label */
@@ -606,19 +608,17 @@ SLStreamPackets (ClientInfo *cinfo)
     }
   }
   else if (cinfo->packet.datasize > 0 &&
-           (MS2_ISVALIDHEADER (cinfo->sendbuf) ||
-            MS3_ISVALIDHEADER (cinfo->sendbuf)))
+           (MS2_ISVALIDHEADER (cinfo->sendbuf) || MS3_ISVALIDHEADER (cinfo->sendbuf)))
   {
-    lprintf (3, "[%s] Read %s (%u bytes) packet ID %" PRIu64 " from ring",
-             cinfo->hostname, cinfo->packet.streamid, cinfo->packet.datasize, cinfo->packet.pktid);
+    lprintf (3, "[%s] Read %s (%u bytes) packet ID %" PRIu64 " from ring", cinfo->hostname,
+             cinfo->packet.streamid, cinfo->packet.datasize, cinfo->packet.pktid);
 
     /* Get (creating if needed) the StreamNode for this streamid */
-    if ((stream = GetStreamNode (cinfo->streams, &cinfo->streams_lock,
-                                 cinfo->packet.streamid,
+    if ((stream = GetStreamNode (cinfo->streams, &cinfo->streams_lock, cinfo->packet.streamid,
                                  cinfo->streamscount, &newstream)) == NULL)
     {
-      lprintf (0, "[%s] Error with GetStreamNode() for %s",
-               cinfo->hostname, cinfo->packet.streamid);
+      lprintf (0, "[%s] Error with GetStreamNode() for %s", cinfo->hostname,
+               cinfo->packet.streamid);
       return -1;
     }
 
@@ -644,8 +644,8 @@ SLStreamPackets (ClientInfo *cinfo)
       }
       else if (cinfo->packet.datastart > cinfo->endtime)
       {
-        lprintf (2, "[%s] End of time window reached for %s",
-                 cinfo->hostname, cinfo->packet.streamid);
+        lprintf (2, "[%s] End of time window reached for %s", cinfo->hostname,
+                 cinfo->packet.streamid);
         stream->endtimereached = 1;
         slinfo->timewinchannels--;
 
@@ -665,7 +665,7 @@ SLStreamPackets (ClientInfo *cinfo)
     /* If not skipping this record send to the client and update byte count */
     if (!skiprecord)
     {
-      char *sendrecord    = cinfo->sendbuf;
+      char *sendrecord = cinfo->sendbuf;
       uint32_t sendreclen = cinfo->packet.datasize;
 
       /* Convert miniSEED 2 to miniSEED 3 if requested */
@@ -687,7 +687,8 @@ SLStreamPackets (ClientInfo *cinfo)
         MS3Record *msr = NULL;
         if (msr3_parse (cinfo->sendbuf, cinfo->packet.datasize, &msr, 0, 0) == MS_NOERROR)
         {
-          int convertedlen = msr3_repack_mseed3 (msr, cinfo->convertbuf, (uint32_t)cinfo->convertbuflen, 0);
+          int convertedlen =
+              msr3_repack_mseed3 (msr, cinfo->convertbuf, (uint32_t)cinfo->convertbuflen, 0);
 
           if (convertedlen > 0)
           {
@@ -811,8 +812,7 @@ FreeSelectorList (Selector *head)
  * 'poshead' is non-NULL.  Either list may be NULL.
  ***************************************************************************/
 static void
-LinkSelectorLists (Selector **destlist, Selector *poshead, Selector *postail,
-                   Selector *neghead)
+LinkSelectorLists (Selector **destlist, Selector *poshead, Selector *postail, Selector *neghead)
 {
   if (!destlist)
     return;
@@ -820,7 +820,7 @@ LinkSelectorLists (Selector **destlist, Selector *poshead, Selector *postail,
   if (poshead != NULL)
   {
     postail->next = *destlist;
-    *destlist     = poshead;
+    *destlist = poshead;
   }
 
   if (neghead != NULL)
@@ -856,8 +856,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
   char sendbuffer[400];
   ReqStationID *stationid = NULL;
 
-  nstime_t starttime   = NSTUNSET;
-  nstime_t endtime     = NSTUNSET;
+  nstime_t starttime = NSTUNSET;
+  nstime_t endtime = NSTUNSET;
   uint64_t startpacket = RINGID_NONE;
   Conversion convert;
 
@@ -876,14 +876,13 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
 
     /* Create and send server version information */
     pthread_rwlock_rdlock (&config.config_rwlock);
-    bytes = snprintf (sendbuffer, sizeof (sendbuffer),
-                      SLSERVER_ID "\r\n%s\r\n", config.serverid);
+    bytes = snprintf (sendbuffer, sizeof (sendbuffer), SLSERVER_ID "\r\n%s\r\n", config.serverid);
     pthread_rwlock_unlock (&config.config_rwlock);
 
     if (bytes >= sizeof (sendbuffer))
     {
-      lprintf (0, "[%s] Response to HELLO is likely truncated: '%*s'",
-               cinfo->hostname, (int)sizeof (sendbuffer), sendbuffer);
+      lprintf (0, "[%s] Response to HELLO is likely truncated: '%*s'", cinfo->hostname,
+               (int)sizeof (sendbuffer), sendbuffer);
     }
 
     if (SendData (cinfo, sendbuffer, strlen (sendbuffer), 0))
@@ -898,16 +897,20 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
 
     if (cmd->argc != 2 || cmd->overflow)
     {
-      lprintf (2, "[%s] Received %s, protocol rejected (argument error)", cinfo->hostname, cinfo->recvbuf);
+      lprintf (2, "[%s] Received %s, protocol rejected (argument error)", cinfo->hostname,
+               cinfo->recvbuf);
 
-      if (!slinfo->batch && SendReply (cinfo, "ERROR UNSUPPORTED unsupported protocol version", ERROR_NONE, NULL))
+      if (!slinfo->batch &&
+          SendReply (cinfo, "ERROR UNSUPPORTED unsupported protocol version", ERROR_NONE, NULL))
         return -1;
     }
     else if (sscanf (cmd->argv[1], "%" SCNu8 ".%" SCNu8, &proto_major, &proto_minor) < 2)
     {
-      lprintf (2, "[%s] Received %s, protocol rejected (bad version format)", cinfo->hostname, cinfo->recvbuf);
+      lprintf (2, "[%s] Received %s, protocol rejected (bad version format)", cinfo->hostname,
+               cinfo->recvbuf);
 
-      if (!slinfo->batch && SendReply (cinfo, "ERROR UNSUPPORTED unsupported protocol version", ERROR_NONE, NULL))
+      if (!slinfo->batch &&
+          SendReply (cinfo, "ERROR UNSUPPORTED unsupported protocol version", ERROR_NONE, NULL))
         return -1;
     }
     else if ((proto_major == 3) || (proto_major == 4 && proto_minor == 0))
@@ -924,7 +927,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     {
       lprintf (2, "[%s] Received %s, protocol rejected", cinfo->hostname, cinfo->recvbuf);
 
-      if (!slinfo->batch && SendReply (cinfo, "ERROR UNSUPPORTED unsupported protocol version", ERROR_NONE, NULL))
+      if (!slinfo->batch &&
+          SendReply (cinfo, "ERROR UNSUPPORTED unsupported protocol version", ERROR_NONE, NULL))
         return -1;
     }
   }
@@ -965,8 +969,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
   /* CAT (v3.x) - Return text list of stations */
   else if (cmdtoken_eq_nocase (cmd, 0, "CAT"))
   {
-    snprintf (sendbuffer, sizeof (sendbuffer),
-              "CAT command not implemented\r\n");
+    snprintf (sendbuffer, sizeof (sendbuffer), "CAT command not implemented\r\n");
 
     if (SendData (cinfo, sendbuffer, strlen (sendbuffer), 0))
       return -1;
@@ -986,7 +989,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
   {
     char username[128] = {0};
     char password[128] = {0};
-    char *jwtoken      = NULL;
+    char *jwtoken = NULL;
 
     OKGO = 1;
 
@@ -994,7 +997,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     {
       lprintf (0, "[%s] Error parsing AUTH: no sub-command", cinfo->hostname);
 
-      if (SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "AUTH requires a sub-command (USERPASS or JWT)"))
+      if (SendReply (cinfo, "ERROR", ERROR_ARGUMENTS,
+                     "AUTH requires a sub-command (USERPASS or JWT)"))
         return -1;
 
       OKGO = 0;
@@ -1161,10 +1165,11 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     /* Sanity check, only allowed characters in station ID */
     if (OKGO && strspn (slinfo->reqstaid, VALIDSTAIDCHARS) != strlen (slinfo->reqstaid))
     {
-      lprintf (0, "[%s] Error, requested station code illegal characters: '%s'",
-               cinfo->hostname, slinfo->reqstaid);
+      lprintf (0, "[%s] Error, requested station code illegal characters: '%s'", cinfo->hostname,
+               slinfo->reqstaid);
 
-      if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Invalid characters in station ID"))
+      if (!slinfo->batch &&
+          SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Invalid characters in station ID"))
         return -1;
 
       OKGO = 0;
@@ -1177,7 +1182,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       {
         lprintf (0, "[%s] Error in GetReqStationID() for command STATION", cinfo->hostname);
 
-        if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
+        if (!slinfo->batch &&
+            SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
           return -1;
       }
       else
@@ -1212,8 +1218,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     Selector *postail = NULL;
     Selector *neghead = NULL; /* Negated patterns, request order */
     Selector *negtail = NULL;
-    char errmsg[80]   = {0};
-    int alloc_failed  = 0;
+    char errmsg[80] = {0};
+    int alloc_failed = 0;
 
     /* Empty SELECT is not allowed */
     if (cmd->argc < 2)
@@ -1237,7 +1243,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     for (int i = 1; errmsg[0] == '\0' && i < cmd->argc; i++)
     {
       char selectortok[MAXSTREAMID] = {0};
-      char label[SLMAXLABELLEN]     = {0};
+      char label[SLMAXLABELLEN] = {0};
       Selector *newselector;
 
       convert = CONVERT_NONE;
@@ -1270,8 +1276,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
           if (strlen (labelptr) == 0 || strlen (labelptr) >= SLMAXLABELLEN ||
               strspn (labelptr, VALIDLABELCHARS) != strlen (labelptr))
           {
-            lprintf (0, "[%s] Error, SELECT filter '%s' is not a valid label",
-                     cinfo->hostname, labelptr);
+            lprintf (0, "[%s] Error, SELECT filter '%s' is not a valid label", cinfo->hostname,
+                     labelptr);
 
             snprintf (errmsg, sizeof (errmsg), "Filter not supported");
             break;
@@ -1292,24 +1298,24 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       if (slinfo->proto_major == 3)
       {
         char newselectorstr[sizeof (selectortok)];
-        char *negate     = (selectortok[0] == '!') ? "!" : "";
+        char *negate = (selectortok[0] == '!') ? "!" : "";
         char *v3selector = (selectortok[0] == '!') ? selectortok + 1 : selectortok;
 
         if (strlen (v3selector) == 5)
         {
-          snprintf (newselectorstr, sizeof (newselectorstr), "%s%c%c_%c_%c_%c",
-                    negate, v3selector[0], v3selector[1], v3selector[2],
-                    v3selector[3], v3selector[4]);
+          snprintf (newselectorstr, sizeof (newselectorstr), "%s%c%c_%c_%c_%c", negate,
+                    v3selector[0], v3selector[1], v3selector[2], v3selector[3], v3selector[4]);
         }
         else if (strlen (v3selector) == 3)
         {
-          snprintf (newselectorstr, sizeof (newselectorstr), "%s*_%c_%c_%c",
-                    negate, v3selector[0], v3selector[1], v3selector[2]);
+          snprintf (newselectorstr, sizeof (newselectorstr), "%s*_%c_%c_%c", negate, v3selector[0],
+                    v3selector[1], v3selector[2]);
         }
         else
         {
-          lprintf (0, "[%s] Error, SELECT pattern '%s' is not a valid SeedLink v3 LLCCC or CCC pattern",
-                   cinfo->hostname, selectortok);
+          lprintf (
+              0, "[%s] Error, SELECT pattern '%s' is not a valid SeedLink v3 LLCCC or CCC pattern",
+              cinfo->hostname, selectortok);
 
           snprintf (errmsg, sizeof (errmsg), "Invalid selector pattern");
           break;
@@ -1321,8 +1327,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       /* Sanity check, only allowed characters */
       if (strspn (selectortok, VALIDSELECTCHARS) != strlen (selectortok))
       {
-        lprintf (0, "[%s] Error, select pattern contains illegal characters: '%s'",
-                 cinfo->hostname, selectortok);
+        lprintf (0, "[%s] Error, select pattern contains illegal characters: '%s'", cinfo->hostname,
+                 selectortok);
 
         snprintf (errmsg, sizeof (errmsg), "Selector contains illegal characters");
         break;
@@ -1340,7 +1346,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       memcpy (newselector->string, selectortok, sizeof (newselector->string));
       memcpy (newselector->label, label, sizeof (newselector->label));
       newselector->convert = convert;
-      newselector->next    = NULL;
+      newselector->next = NULL;
 
       /* Append to negated or non-negated sub-list, preserving request order */
       if (selectortok[0] == '!')
@@ -1384,7 +1390,8 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       FreeSelectorList (poshead);
       FreeSelectorList (neghead);
 
-      if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
+      if (!slinfo->batch &&
+          SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
         return -1;
     }
     else
@@ -1434,10 +1441,11 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
 
           if (cmdtoken_u64 (cmd, 1, &seq, 10) < 0)
           {
-            lprintf (0, "[%s] Error parsing sequence number for DATA: %s",
-                     cinfo->hostname, cmd->argv[1]);
+            lprintf (0, "[%s] Error parsing sequence number for DATA: %s", cinfo->hostname,
+                     cmd->argv[1]);
 
-            if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Invalid sequence number"))
+            if (!slinfo->batch &&
+                SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Invalid sequence number"))
               return -1;
 
             OKGO = 0;
@@ -1458,10 +1466,10 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       {
         if ((starttime = ms_mdtimestr2nstime (cmd->argv[2])) == NSTERROR)
         {
-          lprintf (0, "[%s] Error parsing time in DATA: %s",
-                   cinfo->hostname, cmd->argv[2]);
+          lprintf (0, "[%s] Error parsing time in DATA: %s", cinfo->hostname, cmd->argv[2]);
 
-          if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing start time"))
+          if (!slinfo->batch &&
+              SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing start time"))
             return -1;
 
           OKGO = 0;
@@ -1473,10 +1481,10 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       {
         if ((endtime = ms_mdtimestr2nstime (cmd->argv[3])) == NSTERROR)
         {
-          lprintf (0, "[%s] Error parsing time in DATA: %s",
-                   cinfo->hostname, cmd->argv[3]);
+          lprintf (0, "[%s] Error parsing time in DATA: %s", cinfo->hostname, cmd->argv[3]);
 
-          if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing end time"))
+          if (!slinfo->batch &&
+              SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing end time"))
             return -1;
 
           OKGO = 0;
@@ -1500,10 +1508,11 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
 
         if (cmdtoken_u32 (cmd, 1, &seq, 16) < 0)
         {
-          lprintf (0, "[%s] Error parsing sequence number for DATA/FETCH: %s",
-                   cinfo->hostname, cmd->argv[1]);
+          lprintf (0, "[%s] Error parsing sequence number for DATA/FETCH: %s", cinfo->hostname,
+                   cmd->argv[1]);
 
-          if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Invalid sequence number"))
+          if (!slinfo->batch &&
+              SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Invalid sequence number"))
             return -1;
 
           OKGO = 0;
@@ -1535,10 +1544,10 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       {
         if ((starttime = ms_mdtimestr2nstime (cmd->argv[2])) == NSTERROR)
         {
-          lprintf (0, "[%s] Error parsing time in DATA/FETCH: %s",
-                   cinfo->hostname, cmd->argv[2]);
+          lprintf (0, "[%s] Error parsing time in DATA/FETCH: %s", cinfo->hostname, cmd->argv[2]);
 
-          if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing start time"))
+          if (!slinfo->batch &&
+              SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing start time"))
             return -1;
 
           OKGO = 0;
@@ -1554,20 +1563,20 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
         /* Find the appropriate station ID and store the requested ID and time */
         if (!(stationid = GetReqStationID (slinfo->stations, slinfo->reqstaid)))
         {
-          lprintf (0, "[%s] Error in GetReqStationID() for command DATA|FETCH",
-                   cinfo->hostname);
+          lprintf (0, "[%s] Error in GetReqStationID() for command DATA|FETCH", cinfo->hostname);
 
-          if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
+          if (!slinfo->batch &&
+              SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
             return -1;
 
           OKGO = 0;
         }
         else
         {
-          stationid->packetid  = startpacket;
+          stationid->packetid = startpacket;
           stationid->datastart = starttime;
           stationid->starttime = starttime;
-          stationid->endtime   = endtime;
+          stationid->endtime = endtime;
         }
       }
 
@@ -1589,9 +1598,9 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       /* If no stations yet we are in all-station mode */
       if (slinfo->stationcount == 0)
       {
-        slinfo->startid  = startpacket;
+        slinfo->startid = startpacket;
         cinfo->starttime = starttime;
-        cinfo->endtime   = endtime;
+        cinfo->endtime = endtime;
       }
 
       /* If FETCH the connection is dial-up */
@@ -1622,10 +1631,10 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     {
       if ((starttime = ms_mdtimestr2nstime (cmd->argv[1])) == NSTERROR)
       {
-        lprintf (0, "[%s] Error parsing start time for TIME: %s",
-                 cinfo->hostname, cmd->argv[1]);
+        lprintf (0, "[%s] Error parsing start time for TIME: %s", cinfo->hostname, cmd->argv[1]);
 
-        if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing start time"))
+        if (!slinfo->batch &&
+            SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing start time"))
           return -1;
 
         OKGO = 0;
@@ -1634,10 +1643,10 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       /* Sanity check for future start time */
       if (OKGO && (time_t)MS_NSTIME2EPOCH (starttime) > time (NULL))
       {
-        lprintf (0, "[%s] Start cannot be in future for TIME: %s",
-                 cinfo->hostname, cmd->argv[1]);
+        lprintf (0, "[%s] Start cannot be in future for TIME: %s", cinfo->hostname, cmd->argv[1]);
 
-        if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Start time cannot be in the future"))
+        if (!slinfo->batch &&
+            SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Start time cannot be in the future"))
           return -1;
 
         OKGO = 0;
@@ -1649,8 +1658,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     {
       if ((endtime = ms_mdtimestr2nstime (cmd->argv[2])) == NSTERROR)
       {
-        lprintf (0, "[%s] Error parsing end time for TIME: %s",
-                 cinfo->hostname, cmd->argv[2]);
+        lprintf (0, "[%s] Error parsing end time for TIME: %s", cinfo->hostname, cmd->argv[2]);
 
         if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "Error parsing end time"))
           return -1;
@@ -1667,10 +1675,10 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
         /* Find the appropriate station ID and store the requested times */
         if (!(stationid = GetReqStationID (slinfo->stations, slinfo->reqstaid)))
         {
-          lprintf (0, "[%s] Error in GetReqStationID() for command TIME",
-                   cinfo->hostname);
+          lprintf (0, "[%s] Error in GetReqStationID() for command TIME", cinfo->hostname);
 
-          if (!slinfo->batch && SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
+          if (!slinfo->batch &&
+              SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error in GetReqStationID()"))
             return -1;
 
           OKGO = 0;
@@ -1678,7 +1686,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
         else
         {
           stationid->starttime = starttime;
-          stationid->endtime   = endtime;
+          stationid->endtime = endtime;
         }
       }
 
@@ -1697,7 +1705,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
       if (slinfo->stationcount == 0 && cmd->argc >= 2)
       {
         cinfo->starttime = starttime;
-        cinfo->endtime   = endtime;
+        cinfo->endtime = endtime;
       }
 
       /* Trigger ring configuration and data flow */
@@ -1724,8 +1732,7 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
   /* Unrecognized command */
   else
   {
-    snprintf (sendbuffer, sizeof (sendbuffer),
-              "Unrecognized command: %.50s", cinfo->recvbuf);
+    snprintf (sendbuffer, sizeof (sendbuffer), "Unrecognized command: %.50s", cinfo->recvbuf);
 
     lprintf (1, "[%s] %s", cinfo->hostname, sendbuffer);
 
@@ -1752,19 +1759,19 @@ static int
 HandleInfo_v3 (ClientInfo *cinfo, CmdToken *cmd)
 {
   SLInfo *slinfo = (SLInfo *)cinfo->extinfo;
-  char *xmlstr   = NULL;
+  char *xmlstr = NULL;
   int xmllength;
   const char *level = NULL;
-  char errflag      = 0;
+  char errflag = 0;
 
   char *record = NULL;
   int8_t swapflag;
 
   uint16_t year = 0;
   uint16_t yday = 0;
-  uint8_t hour  = 0;
-  uint8_t min   = 0;
-  uint8_t sec   = 0;
+  uint8_t hour = 0;
+  uint8_t min = 0;
+  uint8_t sec = 0;
   uint32_t nsec = 0;
 
   if (cmd->argc < 2 || !cmd->argv[1] || cmd->argv[1][0] == '\0')
@@ -1845,7 +1852,7 @@ HandleInfo_v3 (ClientInfo *cinfo, CmdToken *cmd)
   {
     lprintf (0, "[%s] Unrecognized/unsupported INFO level: %s", cinfo->hostname, level);
 
-    xmlstr  = info_xml_slv3_id (cinfo, SLSERVER_ID);
+    xmlstr = info_xml_slv3_id (cinfo, SLSERVER_ID);
     errflag = 1;
   }
 
@@ -1868,36 +1875,36 @@ HandleInfo_v3 (ClientInfo *cinfo, CmdToken *cmd)
     /* Build Fixed Section Data Header */
     memcpy (pMS2FSDH_SEQNUM (record), "000000", 6);
     *pMS2FSDH_DATAQUALITY (record) = 'D';
-    *pMS2FSDH_RESERVED (record)    = ' ';
+    *pMS2FSDH_RESERVED (record) = ' ';
     memcpy (pMS2FSDH_STATION (record), "INFO ", 5);
     memcpy (pMS2FSDH_LOCATION (record), "  ", 2);
     memcpy (pMS2FSDH_CHANNEL (record), (errflag) ? "ERR" : "INF", 3);
     memcpy (pMS2FSDH_NETWORK (record), "XX", 2);
-    *pMS2FSDH_YEAR (record)            = HO2u (year, swapflag);
-    *pMS2FSDH_DAY (record)             = HO2u (yday, swapflag);
-    *pMS2FSDH_HOUR (record)            = hour;
-    *pMS2FSDH_MIN (record)             = min;
-    *pMS2FSDH_SEC (record)             = sec;
-    *pMS2FSDH_UNUSED (record)          = 0;
-    *pMS2FSDH_FSEC (record)            = 0;
-    *pMS2FSDH_NUMSAMPLES (record)      = 0;
-    *pMS2FSDH_SAMPLERATEFACT (record)  = 0;
-    *pMS2FSDH_SAMPLERATEMULT (record)  = 0;
-    *pMS2FSDH_ACTFLAGS (record)        = 0;
-    *pMS2FSDH_IOFLAGS (record)         = 0;
-    *pMS2FSDH_DQFLAGS (record)         = 0;
-    *pMS2FSDH_NUMBLOCKETTES (record)   = 1;
-    *pMS2FSDH_TIMECORRECT (record)     = 0;
-    *pMS2FSDH_DATAOFFSET (record)      = HO2u (56, swapflag);
+    *pMS2FSDH_YEAR (record) = HO2u (year, swapflag);
+    *pMS2FSDH_DAY (record) = HO2u (yday, swapflag);
+    *pMS2FSDH_HOUR (record) = hour;
+    *pMS2FSDH_MIN (record) = min;
+    *pMS2FSDH_SEC (record) = sec;
+    *pMS2FSDH_UNUSED (record) = 0;
+    *pMS2FSDH_FSEC (record) = 0;
+    *pMS2FSDH_NUMSAMPLES (record) = 0;
+    *pMS2FSDH_SAMPLERATEFACT (record) = 0;
+    *pMS2FSDH_SAMPLERATEMULT (record) = 0;
+    *pMS2FSDH_ACTFLAGS (record) = 0;
+    *pMS2FSDH_IOFLAGS (record) = 0;
+    *pMS2FSDH_DQFLAGS (record) = 0;
+    *pMS2FSDH_NUMBLOCKETTES (record) = 1;
+    *pMS2FSDH_TIMECORRECT (record) = 0;
+    *pMS2FSDH_DATAOFFSET (record) = HO2u (56, swapflag);
     *pMS2FSDH_BLOCKETTEOFFSET (record) = HO2u (48, swapflag);
 
     /* Build Blockette 1000 */
-    *pMS2B1000_TYPE (record + 48)      = HO2u (1000, swapflag);
-    *pMS2B1000_NEXT (record + 48)      = 0;
-    *pMS2B1000_ENCODING (record + 48)  = DE_TEXT;
+    *pMS2B1000_TYPE (record + 48) = HO2u (1000, swapflag);
+    *pMS2B1000_NEXT (record + 48) = 0;
+    *pMS2B1000_ENCODING (record + 48) = DE_TEXT;
     *pMS2B1000_BYTEORDER (record + 48) = 1; /* 1 = big endian */
-    *pMS2B1000_RECLEN (record + 48)    = 9; /* 2^9 = 512 byte record */
-    *pMS2B1000_RESERVED (record + 48)  = 0;
+    *pMS2B1000_RECLEN (record + 48) = 9;    /* 2^9 = 512 byte record */
+    *pMS2B1000_RESERVED (record + 48) = 0;
 
     /* Pack all XML into 512-byte records and send to client */
     if (!cinfo->socketerr)
@@ -1968,12 +1975,12 @@ HandleInfo_v3 (ClientInfo *cinfo, CmdToken *cmd)
 static int
 HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
 {
-  char *json_string   = NULL;
-  const char *item    = NULL;
+  char *json_string = NULL;
+  const char *item = NULL;
   const char *station = NULL;
-  char *matchregex    = NULL;
-  char *rejectregex   = NULL;
-  int errflag         = 0;
+  char *matchregex = NULL;
+  char *rejectregex = NULL;
+  int errflag = 0;
 
   Selector selector = {.string = {0}, .convert = CONVERT_NONE, .next = NULL};
 
@@ -1982,18 +1989,19 @@ HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
     lprintf (0, "[%s] INFO requested without a level", cinfo->hostname);
 
     json_string = error_json (cinfo, SLSERVER_ID, "ARGUMENTS", "No INFO item specified");
-    errflag     = 1;
+    errflag = 1;
   }
   else if (cmd->argc > 4 || cmd->overflow)
   {
     lprintf (0, "[%s] INFO request has too many arguments", cinfo->hostname);
 
-    json_string = error_json (cinfo, SLSERVER_ID, "ARGUMENTS", "INFO request has too many arguments");
-    errflag     = 1;
+    json_string =
+        error_json (cinfo, SLSERVER_ID, "ARGUMENTS", "INFO request has too many arguments");
+    errflag = 1;
   }
   else
   {
-    item    = cmd->argv[1];
+    item = cmd->argv[1];
     station = (cmd->argc >= 3) ? cmd->argv[2] : NULL;
 
     /* Copy optional stream selector pattern if provided */
@@ -2031,8 +2039,8 @@ HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
       /* Configure regex for matching included station and stream patterns */
       if (station != NULL)
       {
-        if (StationToRegex (station, (selector.string[0] != '\0') ? &selector : NULL,
-                            &matchregex, &rejectregex))
+        if (StationToRegex (station, (selector.string[0] != '\0') ? &selector : NULL, &matchregex,
+                            &rejectregex))
         {
           lprintf (0, "[%s] Error with StationToRegex", cinfo->hostname);
           SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error with StationToRegex()");
@@ -2051,8 +2059,8 @@ HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
       /* Configure regex for matching included station and stream patterns */
       if (station != NULL)
       {
-        if (StationToRegex (station, (selector.string[0] != '\0') ? &selector : NULL,
-                            &matchregex, &rejectregex))
+        if (StationToRegex (station, (selector.string[0] != '\0') ? &selector : NULL, &matchregex,
+                            &rejectregex))
         {
           lprintf (0, "[%s] Error with StationToRegex", cinfo->hostname);
           SendReply (cinfo, "ERROR", ERROR_INTERNAL, "Error with StationToRegex()");
@@ -2068,9 +2076,11 @@ HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
     {
       if (!(cinfo->permissions & TRUST_PERMISSION))
       {
-        lprintf (1, "[%s] Refusing INFO CONNECTIONS request from un-trusted client", cinfo->hostname);
-        json_string = error_json (cinfo, SLSERVER_ID, "UNAUTHORIZED", "Client is not authorized to request connections");
-        errflag     = 1;
+        lprintf (1, "[%s] Refusing INFO CONNECTIONS request from un-trusted client",
+                 cinfo->hostname);
+        json_string = error_json (cinfo, SLSERVER_ID, "UNAUTHORIZED",
+                                  "Client is not authorized to request connections");
+        errflag = 1;
       }
       else
       {
@@ -2083,7 +2093,7 @@ HandleInfo_v4 (ClientInfo *cinfo, CmdToken *cmd)
     else
     {
       json_string = error_json (cinfo, SLSERVER_ID, "ARGUMENTS", "Unrecognized INFO item");
-      errflag     = 1;
+      errflag = 1;
 
       lprintf (0, "[%s] Unrecognized INFO item: %s", cinfo->hostname, item);
     }
@@ -2188,13 +2198,13 @@ SendReply (ClientInfo *cinfo, char *reply, ErrorCode code, char *extreply)
  * is set on socket errors.
  ***************************************************************************/
 static int
-SendPacket (uint64_t pktid, char *payload, uint32_t payloadlen,
-            const char *staid, char format, char subformat, void *vcinfo)
+SendPacket (uint64_t pktid, char *payload, uint32_t payloadlen, const char *staid, char format,
+            char subformat, void *vcinfo)
 {
   ClientInfo *cinfo = (ClientInfo *)vcinfo;
-  SLInfo *slinfo    = (SLInfo *)cinfo->extinfo;
-  char header[300]  = {0};
-  size_t headerlen  = 0;
+  SLInfo *slinfo = (SLInfo *)cinfo->extinfo;
+  char header[300] = {0};
+  size_t headerlen = 0;
   uint8_t l_staidlen;
 
   if (!payload || !vcinfo)
@@ -2203,7 +2213,7 @@ SendPacket (uint64_t pktid, char *payload, uint32_t payloadlen,
   if (slinfo->proto_major == 4) /* Create v4 header */
   {
     uint32_t l_payloadlen = payloadlen;
-    uint64_t l_pktid      = pktid;
+    uint64_t l_pktid = pktid;
 
     l_staidlen = (staid) ? (uint8_t)strlen (staid) : 0;
 
@@ -2253,11 +2263,11 @@ static int
 SendRecord (RingPacket *packet, char *record, uint32_t reclen, void *vcinfo)
 {
   ClientInfo *cinfo = (ClientInfo *)vcinfo;
-  SLInfo *slinfo    = (SLInfo *)cinfo->extinfo;
+  SLInfo *slinfo = (SLInfo *)cinfo->extinfo;
 
   char staid[MAXSTREAMID] = {0};
 
-  char format    = ' ';
+  char format = ' ';
   char subformat = 'D'; /* All miniSEED records are data/generic */
 
   if (!record || !vcinfo)
@@ -2296,8 +2306,7 @@ SendRecord (RingPacket *packet, char *record, uint32_t reclen, void *vcinfo)
       return -1;
   }
 
-  return SendPacket (packet->pktid, record, reclen, staid,
-                     format, subformat, vcinfo);
+  return SendPacket (packet->pktid, record, reclen, staid, format, subformat, vcinfo);
 } /* End of SendRecord() */
 
 /***************************************************************************
@@ -2312,7 +2321,7 @@ static void
 SendInfoRecord (char *record, uint32_t reclen, void *vcinfo)
 {
   ClientInfo *cinfo = (ClientInfo *)vcinfo;
-  SLInfo *slinfo    = (SLInfo *)cinfo->extinfo;
+  SLInfo *slinfo = (SLInfo *)cinfo->extinfo;
   char header[SLHEADSIZE_V3];
 
   if (!record || !vcinfo)
@@ -2388,7 +2397,7 @@ StaKeyCompare (const void *a, const void *b)
 static ReqStationID *
 GetReqStationID (RBTree *tree, char *staid)
 {
-  char *newkey            = NULL;
+  char *newkey = NULL;
   ReqStationID *stationid = NULL;
   RBNode *rbnode;
 
@@ -2413,8 +2422,8 @@ GetReqStationID (RBTree *tree, char *staid)
     }
 
     stationid->starttime = NSTUNSET;
-    stationid->endtime   = NSTUNSET;
-    stationid->packetid  = RINGID_NONE;
+    stationid->endtime = NSTUNSET;
+    stationid->packetid = RINGID_NONE;
     stationid->datastart = NSTUNSET;
     stationid->selectors = NULL;
 
@@ -2462,8 +2471,7 @@ GetReqStationID (RBTree *tree, char *staid)
 // Return 0 on success and -1 on error.
 ///////////////////////////////////////////////////////////////////////////////
 static int
-StationToRegex (const char *staid, Selector *selector,
-                char **matchregex, char **rejectregex)
+StationToRegex (const char *staid, Selector *selector, char **matchregex, char **rejectregex)
 {
   int matched = 0;
 
@@ -2556,8 +2564,9 @@ SelectToRegex (const char *staid, const char *select, const char *label, char **
 {
   const char *ptr;
   char pattern[256] = {0};
-  char *build       = pattern;
-  char *build_end   = pattern + sizeof (pattern) - (SLMAXLABELLEN + 16); /* Reserve space for "/MSEED3?/LABEL$\0" suffix */
+  char *build = pattern;
+  char *build_end = pattern + sizeof (pattern) -
+                    (SLMAXLABELLEN + 16); /* Reserve space for "/MSEED3?/LABEL$\0" suffix */
   int retval;
 
   if (!regex)
@@ -2676,7 +2685,7 @@ SelectToRegex (const char *staid, const char *select, const char *label, char **
     }
 
     *build++ = '$';
-    *build   = '\0';
+    *build = '\0';
   }
   else
   {

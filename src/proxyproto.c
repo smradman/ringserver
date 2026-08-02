@@ -39,8 +39,8 @@
 #define PP2_HEADER_LEN 16
 
 /* PROXY protocol v2 signature: "\r\n\r\n\0\r\nQUIT\n" */
-static const uint8_t PP2_SIGNATURE[12] = {
-    0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A};
+static const uint8_t PP2_SIGNATURE[12] = {0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D,
+                                          0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A};
 
 /* PROXY protocol v2 commands */
 #define PP2_CMD_LOCAL 0x0
@@ -48,11 +48,11 @@ static const uint8_t PP2_SIGNATURE[12] = {
 
 /* PROXY protocol v2 address families */
 #define PP2_FAM_UNSPEC 0x0
-#define PP2_FAM_INET   0x1
-#define PP2_FAM_INET6  0x2
+#define PP2_FAM_INET 0x1
+#define PP2_FAM_INET6 0x2
 
 /* Address data lengths per family (source + destination addr + ports) */
-#define PP2_ADDR_LEN_INET  12 /* 4+4+2+2 */
+#define PP2_ADDR_LEN_INET 12  /* 4+4+2+2 */
 #define PP2_ADDR_LEN_INET6 36 /* 16+16+2+2 */
 
 /* Maximum total payload length (address block + TLVs).
@@ -66,7 +66,7 @@ static const uint8_t PP2_SIGNATURE[12] = {
 static int
 recv_all (int sock, void *buf, size_t len, int timeout_ms)
 {
-  uint8_t *ptr     = (uint8_t *)buf;
+  uint8_t *ptr = (uint8_t *)buf;
   size_t remaining = len;
   struct timespec start;
 
@@ -76,16 +76,16 @@ recv_all (int sock, void *buf, size_t len, int timeout_ms)
   {
     struct timespec now;
     clock_gettime (CLOCK_MONOTONIC, &now);
-    int elapsed_ms   = (int)((now.tv_sec - start.tv_sec) * 1000 +
-                             (now.tv_nsec - start.tv_nsec) / 1000000);
+    int elapsed_ms =
+        (int)((now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1000000);
     int remaining_ms = timeout_ms - elapsed_ms;
 
     if (remaining_ms <= 0)
       return -1; /* timeout */
 
     struct pollfd pfd;
-    pfd.fd      = sock;
-    pfd.events  = POLLIN;
+    pfd.fd = sock;
+    pfd.events = POLLIN;
     pfd.revents = 0;
 
     int ready = poll (&pfd, 1, remaining_ms);
@@ -105,7 +105,7 @@ recv_all (int sock, void *buf, size_t len, int timeout_ms)
     if (n <= 0)
       return -1; /* error or EOF */
 
-    ptr       += n;
+    ptr += n;
     remaining -= (size_t)n;
   }
 
@@ -142,10 +142,8 @@ drain_bytes (int sock, size_t len, int timeout_ms)
  *  -1  - error
  ***********************************************************************/
 int
-ProxyProtocolV2Read (int socket, int timeout_ms,
-                     struct sockaddr_storage *source_addr,
-                     socklen_t *source_addrlen,
-                     uint16_t *dest_port)
+ProxyProtocolV2Read (int socket, int timeout_ms, struct sockaddr_storage *source_addr,
+                     socklen_t *source_addrlen, uint16_t *dest_port)
 {
   uint8_t hdr[PP2_HEADER_LEN];
   uint8_t addrbuf[PP2_ADDR_LEN_INET6];
@@ -174,7 +172,7 @@ ProxyProtocolV2Read (int socket, int timeout_ms,
     return -1;
   }
 
-  uint8_t cmd    = hdr[12] & 0x0F;
+  uint8_t cmd = hdr[12] & 0x0F;
   uint8_t family = (hdr[13] >> 4) & 0x0F;
 
   /* Read length field without aliased pointer cast to avoid UB on
@@ -186,8 +184,7 @@ ProxyProtocolV2Read (int socket, int timeout_ms,
   /* Reject unreasonably large payloads to bound drain time */
   if (extra > PP2_MAX_PAYLOAD)
   {
-    lprintf (1, "PROXY protocol v2: payload length %u exceeds maximum %d",
-             extra, PP2_MAX_PAYLOAD);
+    lprintf (1, "PROXY protocol v2: payload length %u exceeds maximum %d", extra, PP2_MAX_PAYLOAD);
     return -1;
   }
 

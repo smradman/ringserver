@@ -113,13 +113,13 @@ LoadBufferV1 (char *ringfile_v1)
   RingParamsV1 ringparams_v1;
   RingPacketV1 *packet_v1;
   RingPacket packet;
-  char *packetbuffer   = NULL;
-  int64_t offset       = -1;
+  char *packetbuffer = NULL;
+  int64_t offset = -1;
   uint8_t verbose_save = config.verbose;
-  int64_t count        = 0;
+  int64_t count = 0;
   int ringfd_v1;
 
-  pcre2_code *pcre_code       = NULL;
+  pcre2_code *pcre_code = NULL;
   pcre2_match_data *pcre_data = NULL;
 
   if (!ringfile_v1)
@@ -130,16 +130,15 @@ LoadBufferV1 (char *ringfile_v1)
   /* Open the version 1 ring file */
   if ((ringfd_v1 = open (ringfile_v1, O_RDONLY)) < 0)
   {
-    lprintf (0, "%s(): error opening version 1 ring file %s: %s",
-             __func__, ringfile_v1, strerror (errno));
+    lprintf (0, "%s(): error opening version 1 ring file %s: %s", __func__, ringfile_v1,
+             strerror (errno));
     return -1;
   }
 
   /* Read the version 1 ring parameters */
   if (read (ringfd_v1, &ringparams_v1, sizeof (RingParamsV1)) != sizeof (RingParamsV1))
   {
-    lprintf (0, "%s(): error reading version 1 ring parameters: %s",
-             __func__, strerror (errno));
+    lprintf (0, "%s(): error reading version 1 ring parameters: %s", __func__, strerror (errno));
     close (ringfd_v1);
     return -1;
   }
@@ -147,8 +146,7 @@ LoadBufferV1 (char *ringfile_v1)
   /* Check for v1 version, signature, corruption or busy flags */
   if (ringparams_v1.version != RING_VERSIONv1 ||
       memcmp (ringparams_v1.signature, RING_SIGNATUREv1, sizeof (ringparams_v1.signature)) != 0 ||
-      ringparams_v1.corruptflag != 0 ||
-      ringparams_v1.fluxflag != 0)
+      ringparams_v1.corruptflag != 0 || ringparams_v1.fluxflag != 0)
   {
     lprintf (0, "%s(): version 1 ring file %s has invalid signature, is corrupt, or marked busy",
              __func__, ringfile_v1);
@@ -159,8 +157,7 @@ LoadBufferV1 (char *ringfile_v1)
   /* Check for empty ring, in v1 offsets are -1 when not set */
   if (ringparams_v1.earliestoffset < 0)
   {
-    lprintf (2, "%s(): version 1 ring file %s is empty",
-             __func__, ringfile_v1);
+    lprintf (2, "%s(): version 1 ring file %s is empty", __func__, ringfile_v1);
     close (ringfd_v1);
     return 0;
   }
@@ -168,8 +165,9 @@ LoadBufferV1 (char *ringfile_v1)
   /* Check for compatible packet size */
   if (ringparams_v1.pktsize <= sizeof (RingPacketV1) || ringparams_v1.pktsize > param.pktsize)
   {
-    lprintf (0, "%s(): version 1 ring file %s has incompatible packet size %u, expected > %zu and <= %u",
-             __func__, ringfile_v1, ringparams_v1.pktsize, sizeof (RingPacketV1), param.pktsize);
+    lprintf (
+        0, "%s(): version 1 ring file %s has incompatible packet size %u, expected > %zu and <= %u",
+        __func__, ringfile_v1, ringparams_v1.pktsize, sizeof (RingPacketV1), param.pktsize);
     close (ringfd_v1);
     return -1;
   }
@@ -183,8 +181,7 @@ LoadBufferV1 (char *ringfile_v1)
   }
 
   /* Compile the legacy miniSEED stream ID pattern */
-  if (UpdatePattern (&pcre_code, &pcre_data,
-                     LEGACY_MSEED_STREAMID_PATTERN,
+  if (UpdatePattern (&pcre_code, &pcre_data, LEGACY_MSEED_STREAMID_PATTERN,
                      "legacy miniSEED stream ID pattern"))
   {
     free (packetbuffer);
@@ -199,14 +196,15 @@ LoadBufferV1 (char *ringfile_v1)
 
   /* Traverse packet buffer from earliest to latest */
   uint64_t maxpackets = (ringparams_v1.maxoffset / ringparams_v1.pktsize) + 1;
-  offset              = ringparams_v1.earliestoffset;
+  offset = ringparams_v1.earliestoffset;
   while (offset >= 0 && offset <= ringparams_v1.maxoffset && count < maxpackets)
   {
     /* Read packet from offset */
-    if (pread (ringfd_v1, packetbuffer, ringparams_v1.pktsize, ringparams_v1.headersize + offset) != ringparams_v1.pktsize)
+    if (pread (ringfd_v1, packetbuffer, ringparams_v1.pktsize, ringparams_v1.headersize + offset) !=
+        ringparams_v1.pktsize)
     {
-      lprintf (0, "%s(): error reading packet from version 1 ring file %s: %s",
-               __func__, ringfile_v1, strerror (errno));
+      lprintf (0, "%s(): error reading packet from version 1 ring file %s: %s", __func__,
+               ringfile_v1, strerror (errno));
       break;
     }
 
@@ -216,15 +214,17 @@ LoadBufferV1 (char *ringfile_v1)
     packet_v1->streamid[sizeof (packet_v1->streamid) - 1] = '\0';
 
     /* Convert packet to current version */
-    packet.pktid     = packet_v1->pktid;
+    packet.pktid = packet_v1->pktid;
     packet.datastart = MS_HPTIME2NSTIME (packet_v1->datastart);
-    packet.dataend   = MS_HPTIME2NSTIME (packet_v1->dataend);
-    packet.datasize  = packet_v1->datasize;
+    packet.dataend = MS_HPTIME2NSTIME (packet_v1->dataend);
+    packet.datasize = packet_v1->datasize;
 
     const uint32_t slot_payload = ringparams_v1.pktsize - (uint32_t)sizeof (RingPacketV1);
     if (packet.datasize > slot_payload)
     {
-      lprintf (0, "%s(): packet datasize %" PRIu32 " exceeds v1 slot payload %" PRIu32 ", skipping packet at offset %" PRId64,
+      lprintf (0,
+               "%s(): packet datasize %" PRIu32 " exceeds v1 slot payload %" PRIu32
+               ", skipping packet at offset %" PRId64,
                __func__, packet.datasize, slot_payload, offset);
       goto next_packet;
     }
@@ -232,23 +232,22 @@ LoadBufferV1 (char *ringfile_v1)
     /* Translate legacy stream ID: NN_SSSSS_LL_CCC/MSEED
      * to an FDSN Source ID: FDSN:NN_SSSSS_LL_C_C_C/MSEED */
     if (pcre_code != NULL &&
-        pcre2_match (pcre_code, (PCRE2_SPTR8)packet_v1->streamid,
-                     PCRE2_ZERO_TERMINATED, 0, 0,
+        pcre2_match (pcre_code, (PCRE2_SPTR8)packet_v1->streamid, PCRE2_ZERO_TERMINATED, 0, 0,
                      pcre_data, GetMatchContext ()) > 0)
     {
       char *prechannel = strrchr (packet_v1->streamid, '_');
 
       if (prechannel && strlen (prechannel) >= 4)
       {
-        int sidlen = snprintf (packet.streamid, sizeof (packet.streamid),
-                               "FDSN:%.*s_%c_%c_%c%s",
+        int sidlen = snprintf (packet.streamid, sizeof (packet.streamid), "FDSN:%.*s_%c_%c_%c%s",
                                (int)(prechannel - packet_v1->streamid), packet_v1->streamid,
-                               prechannel[1], prechannel[2], prechannel[3],
-                               &prechannel[4]);
+                               prechannel[1], prechannel[2], prechannel[3], &prechannel[4]);
 
         if (sidlen < 0 || (size_t)sidlen >= sizeof (packet.streamid))
         {
-          lprintf (0, "%s(): translated legacy stream ID does not fit (%s), skipping packet at offset %" PRId64,
+          lprintf (0,
+                   "%s(): translated legacy stream ID does not fit (%s), skipping packet at offset "
+                   "%" PRId64,
                    __func__, packet_v1->streamid, offset);
           goto next_packet;
         }
@@ -262,8 +261,7 @@ LoadBufferV1 (char *ringfile_v1)
       }
 
       if (verbose_save >= 3)
-        lprintf (3, "Translating legacy stream ID: %s -> %s",
-                 packet_v1->streamid, packet.streamid);
+        lprintf (3, "Translating legacy stream ID: %s -> %s", packet_v1->streamid, packet.streamid);
     }
     /* Otherwise copy stream ID verbatim */
     else
@@ -275,8 +273,8 @@ LoadBufferV1 (char *ringfile_v1)
     }
 
     if (verbose_save >= 3)
-      lprintf (0, "Loading packet ID %" PRId64 " from stream %s at offset %" PRId64,
-               packet.pktid, packet.streamid, offset);
+      lprintf (0, "Loading packet ID %" PRId64 " from stream %s at offset %" PRId64, packet.pktid,
+               packet.streamid, offset);
 
     /* Add packet to the current ring buffer */
     if (RingWrite (&packet, packetbuffer + sizeof (RingPacketV1), packet.datasize))
@@ -373,10 +371,10 @@ LoadBufferV2 (char *ringfile_v2)
   RingParamsV2 ringparams_v2;
   RingPacketV2 *packet_v2;
   RingPacket packet;
-  char *packetbuffer   = NULL;
-  int64_t offset       = -1;
+  char *packetbuffer = NULL;
+  int64_t offset = -1;
   uint8_t verbose_save = config.verbose;
-  int64_t count        = 0;
+  int64_t count = 0;
   int ringfd_v2;
 
   if (!ringfile_v2)
@@ -387,16 +385,15 @@ LoadBufferV2 (char *ringfile_v2)
   /* Open the version 2 ring file */
   if ((ringfd_v2 = open (ringfile_v2, O_RDONLY)) < 0)
   {
-    lprintf (0, "%s(): error opening version 2 ring file %s: %s",
-             __func__, ringfile_v2, strerror (errno));
+    lprintf (0, "%s(): error opening version 2 ring file %s: %s", __func__, ringfile_v2,
+             strerror (errno));
     return -1;
   }
 
   /* Read the version 2 ring parameters */
   if (read (ringfd_v2, &ringparams_v2, sizeof (RingParamsV2)) != sizeof (RingParamsV2))
   {
-    lprintf (0, "%s(): error reading version 2 ring parameters: %s",
-             __func__, strerror (errno));
+    lprintf (0, "%s(): error reading version 2 ring parameters: %s", __func__, strerror (errno));
     close (ringfd_v2);
     return -1;
   }
@@ -404,8 +401,7 @@ LoadBufferV2 (char *ringfile_v2)
   /* Check for v2 version, signature, corruption or busy flags */
   if (ringparams_v2.version != RING_VERSIONv2 ||
       memcmp (ringparams_v2.signature, RING_SIGNATUREv2, sizeof (ringparams_v2.signature)) != 0 ||
-      ringparams_v2.corruptflag != 0 ||
-      ringparams_v2.fluxflag != 0)
+      ringparams_v2.corruptflag != 0 || ringparams_v2.fluxflag != 0)
   {
     lprintf (0, "%s(): version 2 ring file %s has invalid signature, is corrupt, or marked busy",
              __func__, ringfile_v2);
@@ -416,8 +412,7 @@ LoadBufferV2 (char *ringfile_v2)
   /* Check for empty ring, in v2 offsets are -1 when not set */
   if (ringparams_v2.earliestoffset < 0)
   {
-    lprintf (2, "%s(): version 2 ring file %s is empty",
-             __func__, ringfile_v2);
+    lprintf (2, "%s(): version 2 ring file %s is empty", __func__, ringfile_v2);
     close (ringfd_v2);
     return 0;
   }
@@ -425,8 +420,9 @@ LoadBufferV2 (char *ringfile_v2)
   /* Check for compatible packet size */
   if (ringparams_v2.pktsize <= sizeof (RingPacketV2) || ringparams_v2.pktsize > param.pktsize)
   {
-    lprintf (0, "%s(): version 2 ring file %s has incompatible packet size %u, expected > %zu and <= %u",
-             __func__, ringfile_v2, ringparams_v2.pktsize, sizeof (RingPacketV2), param.pktsize);
+    lprintf (
+        0, "%s(): version 2 ring file %s has incompatible packet size %u, expected > %zu and <= %u",
+        __func__, ringfile_v2, ringparams_v2.pktsize, sizeof (RingPacketV2), param.pktsize);
     close (ringfd_v2);
     return -1;
   }
@@ -446,29 +442,32 @@ LoadBufferV2 (char *ringfile_v2)
 
   /* Traverse packet buffer from earliest to latest */
   uint64_t maxpackets = (ringparams_v2.maxoffset / ringparams_v2.pktsize) + 1;
-  offset              = ringparams_v2.earliestoffset;
+  offset = ringparams_v2.earliestoffset;
   while (offset >= 0 && offset <= ringparams_v2.maxoffset && count < maxpackets)
   {
     /* Read packet from offset */
-    if (pread (ringfd_v2, packetbuffer, ringparams_v2.pktsize, ringparams_v2.headersize + offset) != ringparams_v2.pktsize)
+    if (pread (ringfd_v2, packetbuffer, ringparams_v2.pktsize, ringparams_v2.headersize + offset) !=
+        ringparams_v2.pktsize)
     {
-      lprintf (0, "%s(): error reading packet from version 2 ring file %s: %s",
-               __func__, ringfile_v2, strerror (errno));
+      lprintf (0, "%s(): error reading packet from version 2 ring file %s: %s", __func__,
+               ringfile_v2, strerror (errno));
       break;
     }
 
     packet_v2 = (RingPacketV2 *)packetbuffer;
 
     /* Convert packet to current version */
-    packet.pktid     = packet_v2->pktid;
+    packet.pktid = packet_v2->pktid;
     packet.datastart = packet_v2->datastart;
-    packet.dataend   = packet_v2->dataend;
-    packet.datasize  = packet_v2->datasize;
+    packet.dataend = packet_v2->dataend;
+    packet.datasize = packet_v2->datasize;
 
     const uint32_t slot_payload = ringparams_v2.pktsize - (uint32_t)sizeof (RingPacketV2);
     if (packet.datasize > slot_payload)
     {
-      lprintf (0, "%s(): packet datasize %" PRIu32 " exceeds v2 slot payload %" PRIu32 ", skipping packet at offset %" PRId64,
+      lprintf (0,
+               "%s(): packet datasize %" PRIu32 " exceeds v2 slot payload %" PRIu32
+               ", skipping packet at offset %" PRId64,
                __func__, packet.datasize, slot_payload, offset);
       goto next_packet;
     }
@@ -479,8 +478,8 @@ LoadBufferV2 (char *ringfile_v2)
             sizeof (packet.streamid) - sizeof (packet_v2->streamid));
 
     if (verbose_save >= 3)
-      lprintf (0, "Loading packet ID %" PRId64 " from stream %s at offset %" PRId64,
-               packet.pktid, packet.streamid, offset);
+      lprintf (0, "Loading packet ID %" PRId64 " from stream %s at offset %" PRId64, packet.pktid,
+               packet.streamid, offset);
 
     /* Add packet to the current ring buffer */
     if (RingWrite (&packet, packetbuffer + sizeof (RingPacketV2), packet.datasize))
@@ -523,10 +522,10 @@ LoadBufferV3 (char *ringfile_v3)
 {
   char header[RBV3_HEADERSIZE];
   RingPacket *packetptr;
-  char *packetbuffer   = NULL;
-  int64_t offset       = -1;
+  char *packetbuffer = NULL;
+  int64_t offset = -1;
   uint8_t verbose_save = config.verbose;
-  int64_t count        = 0;
+  int64_t count = 0;
   int ringfd_v3;
   uint32_t old_pktsize;
   uint32_t old_headersize;
@@ -543,16 +542,15 @@ LoadBufferV3 (char *ringfile_v3)
   /* Open the version 3 ring file */
   if ((ringfd_v3 = open (ringfile_v3, O_RDONLY)) < 0)
   {
-    lprintf (0, "%s(): error opening ring file %s: %s",
-             __func__, ringfile_v3, strerror (errno));
+    lprintf (0, "%s(): error opening ring file %s: %s", __func__, ringfile_v3, strerror (errno));
     return -1;
   }
 
   /* Read the V3 ring header */
   if (pread (ringfd_v3, header, RBV3_HEADERSIZE, 0) != RBV3_HEADERSIZE)
   {
-    lprintf (0, "%s(): error reading ring header from %s: %s",
-             __func__, ringfile_v3, strerror (errno));
+    lprintf (0, "%s(): error reading ring header from %s: %s", __func__, ringfile_v3,
+             strerror (errno));
     close (ringfd_v3);
     return -1;
   }
@@ -561,8 +559,7 @@ LoadBufferV3 (char *ringfile_v3)
   if (memcmp (pRBV3_SIGNATURE (header), RING_SIGNATURE, RING_SIGNATURE_LENGTH) != 0 ||
       *pRBV3_VERSION (header) != RING_VERSION)
   {
-    lprintf (0, "%s(): ring file %s has invalid signature or version",
-             __func__, ringfile_v3);
+    lprintf (0, "%s(): ring file %s has invalid signature or version", __func__, ringfile_v3);
     close (ringfd_v3);
     return -1;
   }
@@ -604,13 +601,14 @@ LoadBufferV3 (char *ringfile_v3)
   config.verbose = 0;
 
   maxpackets = (old_maxoffset / old_pktsize) + 1;
-  offset     = old_earliestoffset;
+  offset = old_earliestoffset;
   while (offset >= 0 && offset <= old_maxoffset && count < maxpackets)
   {
-    if (pread (ringfd_v3, packetbuffer, old_pktsize, old_headersize + offset) != (ssize_t)old_pktsize)
+    if (pread (ringfd_v3, packetbuffer, old_pktsize, old_headersize + offset) !=
+        (ssize_t)old_pktsize)
     {
-      lprintf (0, "%s(): error reading packet from ring file %s: %s",
-               __func__, ringfile_v3, strerror (errno));
+      lprintf (0, "%s(): error reading packet from ring file %s: %s", __func__, ringfile_v3,
+               strerror (errno));
       break;
     }
 
@@ -622,7 +620,9 @@ LoadBufferV3 (char *ringfile_v3)
     const uint32_t slot_payload = old_pktsize - (uint32_t)sizeof (RingPacket);
     if (packetptr->datasize > slot_payload)
     {
-      lprintf (0, "%s(): packet datasize %" PRIu32 " exceeds v3 slot payload %" PRIu32 ", skipping packet at offset %" PRId64,
+      lprintf (0,
+               "%s(): packet datasize %" PRIu32 " exceeds v3 slot payload %" PRIu32
+               ", skipping packet at offset %" PRId64,
                __func__, packetptr->datasize, slot_payload, offset);
       goto next_packet;
     }

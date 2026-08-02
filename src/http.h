@@ -23,14 +23,16 @@
 #define HTTP_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-#include "ring.h"
 #include "clients.h"
+#include "ring.h"
 
 /* Extract bit range and shift to start */
-#define EXTRACTBITRANGE(VALUE, STARTBIT, LENGTH) ((VALUE & (((1 << LENGTH) - 1) << STARTBIT)) >> STARTBIT)
+#define EXTRACTBITRANGE(VALUE, STARTBIT, LENGTH) \
+  ((VALUE & (((1 << LENGTH) - 1) << STARTBIT)) >> STARTBIT)
 
 extern int HandleHTTP (char *recvbuffer, ClientInfo *cinfo);
 extern int RecvWSFrame (ClientInfo *cinfo, uint64_t *length);

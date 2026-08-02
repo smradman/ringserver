@@ -25,7 +25,8 @@
 #define LOADBUFFER_H 1
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include "ring.h"

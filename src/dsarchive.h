@@ -33,33 +33,31 @@
 #define MAX_FILENAME_LEN 400
 
 /* Define pre-formatted archive layouts */
-#define BUDLAYOUT   "%n/%s/%s.%n.%l.%c.%Y.%j"
-#define CSSLAYOUT   "%Y/%j/%s.%c.%Y:%j:#H:#M:#S"
-#define CHANLAYOUT  "%n.%s.%l.%c"
+#define BUDLAYOUT "%n/%s/%s.%n.%l.%c.%Y.%j"
+#define CSSLAYOUT "%Y/%j/%s.%c.%Y:%j:#H:#M:#S"
+#define CHANLAYOUT "%n.%s.%l.%c"
 #define QCHANLAYOUT "%n.%s.%l.%c.%q"
-#define CDAYLAYOUT  "%n.%s.%l.%c.%Y:%j:#H:#M:#S"
-#define SDAYLAYOUT  "%n.%s.%Y:%j"
+#define CDAYLAYOUT "%n.%s.%l.%c.%Y:%j:#H:#M:#S"
+#define SDAYLAYOUT "%n.%s.%Y:%j"
 #define HSDAYLAYOUT "%h/%n.%s.%Y:%j"
 
 typedef struct DataStreamGroup
 {
-  char   *defkey;
-  int     filed;
-  time_t  modtime;
-  char    filename[MAX_FILENAME_LEN];
-  struct  DataStreamGroup *next;
-}
-DataStreamGroup;
+  char *defkey;
+  int filed;
+  time_t modtime;
+  char filename[MAX_FILENAME_LEN];
+  struct DataStreamGroup *next;
+} DataStreamGroup;
 
 typedef struct DataStream
 {
-  char   *path;
-  int     idletimeout;
-  int     maxopenfiles;
-  int     openfilecount;
-  struct  DataStreamGroup *grouproot;
-}
-DataStream;
+  char *path;
+  int idletimeout;
+  int maxopenfiles;
+  int openfilecount;
+  struct DataStreamGroup *grouproot;
+} DataStream;
 
 extern int ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname);
 extern int ds_closeidle (DataStream *datastream, int idletimeout, char *ident);

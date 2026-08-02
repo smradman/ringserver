@@ -52,7 +52,7 @@ cmdtoken_parse (CmdToken *cmd, const char *line)
   if (!cmd || !line)
     return -1;
 
-  cmd->argc     = 0;
+  cmd->argc = 0;
   cmd->overflow = 0;
 
   len = strlen (line);
@@ -190,7 +190,7 @@ cmdtoken_u32 (const CmdToken *cmd, int i, uint32_t *out, int base)
     return -1;
 
   errno = 0;
-  val   = strtoull (cmd->argv[i], &endptr, base);
+  val = strtoull (cmd->argv[i], &endptr, base);
 
   if (errno != 0 || endptr == cmd->argv[i] || *endptr != '\0')
     return -1;
@@ -224,7 +224,7 @@ cmdtoken_u64 (const CmdToken *cmd, int i, uint64_t *out, int base)
     return -1;
 
   errno = 0;
-  val   = strtoull (cmd->argv[i], &endptr, base);
+  val = strtoull (cmd->argv[i], &endptr, base);
 
   if (errno != 0 || endptr == cmd->argv[i] || *endptr != '\0')
     return -1;
@@ -249,7 +249,7 @@ cmdtoken_i64 (const CmdToken *cmd, int i, int64_t *out, int base)
     return -1;
 
   errno = 0;
-  val   = strtoll (cmd->argv[i], &endptr, base);
+  val = strtoll (cmd->argv[i], &endptr, base);
 
   if (errno != 0 || endptr == cmd->argv[i] || *endptr != '\0')
     return -1;

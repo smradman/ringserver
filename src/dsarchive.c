@@ -44,9 +44,8 @@
 #include "logging.h"
 
 /* Functions internal to this source file */
-static DataStreamGroup *ds_getstream (DataStream *datastream, const char *defkey,
-                                      char *filename, int nondefflags,
-                                      const char *globmatch, char *hostname);
+static DataStreamGroup *ds_getstream (DataStream *datastream, const char *defkey, char *filename,
+                                      int nondefflags, const char *globmatch, char *hostname);
 static int ds_openfile (DataStream *datastream, const char *filename, char *ident);
 static void ds_shutdown (DataStream *datastream, char *ident);
 
@@ -91,7 +90,7 @@ extern int
 ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
 {
   DataStreamGroup *foundgroup = NULL;
-  DSstrlist *fnlist           = NULL;
+  DSstrlist *fnlist = NULL;
   DSstrlist *fnptr;
   struct tm ctm;
   time_t curtime;
@@ -106,32 +105,31 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
   int writeloops;
   int rv;
 
-  char network[10]  = {0};
-  char station[10]  = {0};
+  char network[10] = {0};
+  char station[10] = {0};
   char location[10] = {0};
-  char channel[10]  = {0};
+  char channel[10] = {0};
 
   uint16_t year = 0;
   uint16_t yday = 0;
-  uint8_t hour  = 0;
-  uint8_t min   = 0;
-  uint8_t sec   = 0;
+  uint8_t hour = 0;
+  uint8_t min = 0;
+  uint8_t sec = 0;
   uint32_t nsec = 0;
 
   /* Special case for stream shutdown */
   if (!msr)
   {
-    lprintf (2, "[%s] Closing archive for %s",
-             hostname, datastream->path);
+    lprintf (2, "[%s] Closing archive for %s", hostname, datastream->path);
 
     ds_shutdown (datastream, hostname);
     return 0;
   }
 
   /* Build file path and name from pathformat */
-  filename[0]   = '\0';
+  filename[0] = '\0';
   definition[0] = '\0';
-  globmatch[0]  = '\0';
+  globmatch[0] = '\0';
 
   snprintf (pathformat, sizeof (pathformat), "%s", datastream->path);
 
@@ -166,18 +164,15 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
     }
     else
     {
-      lprintf (0, "[%s] ds_streamproc(): empty path format",
-               hostname);
+      lprintf (0, "[%s] ds_streamproc(): empty path format", hostname);
       ds_strparse (NULL, NULL, &fnlist);
       return -1;
     }
   }
 
   /* Decompose SID into codes */
-  ms_sid2nslc_n (msr->sid, network, sizeof (network),
-                 station, sizeof (station),
-                 location, sizeof (location),
-                 channel, sizeof (channel));
+  ms_sid2nslc_n (msr->sid, network, sizeof (network), station, sizeof (station), location,
+                 sizeof (location), channel, sizeof (channel));
 
   /* Reject SID components that could steer the archive path outside its root
      (path traversal) when substituted for %n/%s/%l/%c.  A '/' would create an
@@ -188,8 +183,7 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
     for (int cidx = 0; cidx < 4; cidx++)
     {
       char *code = sidcodes[cidx];
-      if (strcmp (code, ".") == 0 || strcmp (code, "..") == 0 ||
-          strchr (code, '/') != NULL)
+      if (strcmp (code, ".") == 0 || strcmp (code, "..") == 0 || strchr (code, '/') != NULL)
       {
         lprintf (0, "[%s] ds_streamproc(): unsafe SID component '%s' in %s, rejecting record",
                  hostname, code, msr->sid);
@@ -212,8 +206,7 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
     /* Special case of no file given */
     if (*p == '\0' && fnptr->next == NULL)
     {
-      lprintf (0, "[%s] ds_streamproc(): no file name specified, only %s",
-               hostname, filename);
+      lprintf (0, "[%s] ds_streamproc(): no file name specified, only %s", hostname, filename);
       ds_strparse (NULL, NULL, &fnlist);
       return -1;
     }
@@ -221,7 +214,7 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
     while ((w = strpbrk (p, "%#")) != NULL)
     {
       def = (*w == '%');
-      *w  = '\0';
+      *w = '\0';
 
       ds_append (filename, sizeof (filename), p);
 
@@ -394,7 +387,8 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
           if (def)
             ds_append (globmatch, sizeof (globmatch), tstr);
           else
-            ds_append (globmatch, sizeof (globmatch), "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]");
+            ds_append (globmatch, sizeof (globmatch),
+                       "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]");
         }
         p = w + 1;
         break;
@@ -402,8 +396,8 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
         curtime = time (NULL);
         if (!curtime || !localtime_r (&curtime, &ctm))
         {
-          lprintf (0, "[%s] error creating current year-day time stamp: %s",
-                   hostname, strerror (errno));
+          lprintf (0, "[%s] error creating current year-day time stamp: %s", hostname,
+                   strerror (errno));
           p = w;
           break;
         }
@@ -493,8 +487,7 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
         p = w + 1;
         break;
       default:
-        lprintf (0, "[%s] unknown file name format code: %c",
-                 hostname, *w);
+        lprintf (0, "[%s] unknown file name format code: %c", hostname, *w);
         p = w;
         break;
       }
@@ -515,16 +508,14 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
           lprintf (2, "[%s] Creating directory: %s", hostname, filename);
           if (mkdir (filename, S_IRWXU | S_IRWXG | S_IRWXO)) /* Mode 0777 */
           {
-            lprintf (0, "[%s] ds_streamproc: mkdir(%s) %s",
-                     hostname, filename, strerror (errno));
+            lprintf (0, "[%s] ds_streamproc: mkdir(%s) %s", hostname, filename, strerror (errno));
             ds_strparse (NULL, NULL, &fnlist);
             return -1;
           }
         }
         else
         {
-          lprintf (0, "[%s] %s: access denied, %s",
-                   hostname, filename, strerror (errno));
+          lprintf (0, "[%s] %s: access denied, %s", hostname, filename, strerror (errno));
           ds_strparse (NULL, NULL, &fnlist);
           return -1;
         }
@@ -542,18 +533,16 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
   ds_strparse (NULL, NULL, &fnlist);
 
   /* Make sure the filename and definition are NULL terminated */
-  *(filename + sizeof (filename) - 1)     = '\0';
+  *(filename + sizeof (filename) - 1) = '\0';
   *(definition + sizeof (definition) - 1) = '\0';
 
   /* Check for previously used stream entry, otherwise create it */
-  foundgroup = ds_getstream (datastream, definition, filename,
-                             nondefflags, globmatch, hostname);
+  foundgroup = ds_getstream (datastream, definition, filename, nondefflags, globmatch, hostname);
 
   if (foundgroup != NULL)
   {
     /*  Write the record to the appropriate file */
-    lprintf (3, "[%s] Writing data to data stream file %s",
-             hostname, foundgroup->filename);
+    lprintf (3, "[%s] Writing data to data stream file %s", hostname, foundgroup->filename);
 
     /* Try up to 10 times to write the data out, could be interrupted by signal */
     writebytes = 0;
@@ -571,8 +560,8 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
 
       if (rv == 0)
       {
-        lprintf (0, "[%s] ds_streamproc: write returned 0 for %s, aborting record write",
-                 hostname, foundgroup->filename);
+        lprintf (0, "[%s] ds_streamproc: write returned 0 for %s, aborting record write", hostname,
+                 foundgroup->filename);
         /* Restore modtime so ds_closeidle() can reap this stream */
         foundgroup->modtime = time (NULL);
         return -1;
@@ -582,15 +571,15 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
       {
         if (errno != EINTR)
         {
-          lprintf (0, "[%s] ds_streamproc: failed to write record: %s (%s)",
-                   hostname, strerror (errno), foundgroup->filename);
+          lprintf (0, "[%s] ds_streamproc: failed to write record: %s (%s)", hostname,
+                   strerror (errno), foundgroup->filename);
           foundgroup->modtime = time (NULL);
           return -1;
         }
         else
         {
-          lprintf (1, "[%s] ds_streamproc: Interrupted call to write (%s), retrying",
-                   hostname, foundgroup->filename);
+          lprintf (1, "[%s] ds_streamproc: Interrupted call to write (%s), retrying", hostname,
+                   foundgroup->filename);
           writeloops++;
         }
       }
@@ -624,14 +613,14 @@ ds_streamproc (DataStream *datastream, MS3Record *msr, char *hostname)
 int
 ds_closeidle (DataStream *datastream, int idletimeout, char *ident)
 {
-  int count                    = 0;
+  int count = 0;
   DataStreamGroup *searchgroup = NULL;
-  DataStreamGroup *prevgroup   = NULL;
-  DataStreamGroup *nextgroup   = NULL;
+  DataStreamGroup *prevgroup = NULL;
+  DataStreamGroup *nextgroup = NULL;
   time_t curtime;
 
   searchgroup = datastream->grouproot;
-  curtime     = time (NULL);
+  curtime = time (NULL);
 
   /* Traverse the stream chain */
   while (searchgroup != NULL)
@@ -640,8 +629,7 @@ ds_closeidle (DataStream *datastream, int idletimeout, char *ident)
 
     if (searchgroup->modtime > 0 && (curtime - searchgroup->modtime) >= idletimeout)
     {
-      lprintf (2, "[%s] Closing idle stream with key %s",
-               ident, searchgroup->defkey);
+      lprintf (2, "[%s] Closing idle stream with key %s", ident, searchgroup->defkey);
 
       /* Re-link the stream chain */
       if (prevgroup != NULL)
@@ -655,8 +643,7 @@ ds_closeidle (DataStream *datastream, int idletimeout, char *ident)
 
       /* Close the associated file */
       if (close (searchgroup->filed))
-        lprintf (2, "[%s] ds_closeidle(), closing data stream file, %s",
-                 ident, strerror (errno));
+        lprintf (2, "[%s] ds_closeidle(), closing data stream file, %s", ident, strerror (errno));
 
       count++;
 
@@ -691,19 +678,19 @@ ds_closeidle (DataStream *datastream, int idletimeout, char *ident)
  * Returns a pointer to a DataStreamGroup on success or NULL on error.
  ***************************************************************************/
 static DataStreamGroup *
-ds_getstream (DataStream *datastream, const char *defkey, char *filename,
-              int nondefflags, const char *globmatch, char *ident)
+ds_getstream (DataStream *datastream, const char *defkey, char *filename, int nondefflags,
+              const char *globmatch, char *ident)
 {
-  DataStreamGroup *foundgroup  = NULL;
+  DataStreamGroup *foundgroup = NULL;
   DataStreamGroup *searchgroup = NULL;
-  DataStreamGroup *prevgroup   = NULL;
+  DataStreamGroup *prevgroup = NULL;
   time_t curtime;
   char *matchedfilename = NULL;
 
   int group_linked = 0;
 
   searchgroup = datastream->grouproot;
-  curtime     = time (NULL);
+  curtime = time (NULL);
 
   /* Traverse the stream chain looking for matching streams */
   while (searchgroup != NULL)
@@ -712,16 +699,15 @@ ds_getstream (DataStream *datastream, const char *defkey, char *filename,
 
     if (!strcmp (searchgroup->defkey, defkey))
     {
-      lprintf (3, "[%s] Found data stream entry for key %s",
-               ident, defkey);
+      lprintf (3, "[%s] Found data stream entry for key %s", ident, defkey);
 
-      foundgroup   = searchgroup;
+      foundgroup = searchgroup;
       group_linked = 1;
 
       break;
     }
 
-    prevgroup   = searchgroup;
+    prevgroup = searchgroup;
     searchgroup = nextgroup;
   }
 
@@ -733,8 +719,7 @@ ds_getstream (DataStream *datastream, const char *defkey, char *filename,
     glob_t pglob;
     int rval;
 
-    lprintf (3, "[%s] No stream entry found, searching for: %s",
-             ident, globmatch);
+    lprintf (3, "[%s] No stream entry found, searching for: %s", ident, globmatch);
 
     rval = glob (globmatch, 0, NULL, &pglob);
 
@@ -758,12 +743,11 @@ ds_getstream (DataStream *datastream, const char *defkey, char *filename,
     else if (rval == 0 && pglob.gl_pathc > 0)
     {
       if (pglob.gl_pathc > 1)
-        lprintf (3, "[%s] Found %lu files matching %s, using last match",
-                 ident, pglob.gl_pathc, globmatch);
+        lprintf (3, "[%s] Found %lu files matching %s, using last match", ident, pglob.gl_pathc,
+                 globmatch);
 
       matchedfilename = pglob.gl_pathv[pglob.gl_pathc - 1];
-      lprintf (2, "[%s] Found matching file for non-defining flags: %s",
-               ident, matchedfilename);
+      lprintf (2, "[%s] Found matching file for non-defining flags: %s", ident, matchedfilename);
 
       /* Now that we have a match use it instead of filename */
       strncpy (filename, matchedfilename, MAX_FILENAME_LEN - 2);
@@ -796,23 +780,23 @@ ds_getstream (DataStream *datastream, const char *defkey, char *filename,
       free (foundgroup);
       return NULL;
     }
-    foundgroup->filed   = -1;
+    foundgroup->filed = -1;
     foundgroup->modtime = curtime;
     strncpy (foundgroup->filename, filename, sizeof (foundgroup->filename) - 1);
     foundgroup->filename[sizeof (foundgroup->filename) - 1] = '\0';
-    foundgroup->next                                        = NULL;
+    foundgroup->next = NULL;
 
     /* Set the stream root if this is the first entry */
     if (datastream->grouproot == NULL)
     {
       datastream->grouproot = foundgroup;
-      group_linked          = 1;
+      group_linked = 1;
     }
     /* Otherwise add to the end of the chain */
     else if (prevgroup != NULL)
     {
       prevgroup->next = foundgroup;
-      group_linked    = 1;
+      group_linked = 1;
     }
     else
     {
@@ -845,16 +829,14 @@ ds_getstream (DataStream *datastream, const char *defkey, char *filename,
 
       /* Do not complain if the call was interrupted (signals are used for shutdown) */
       if (errno != EINTR)
-        lprintf (2, "[%s] cannot open data stream file, %s",
-                 ident, strerror (errno));
+        lprintf (2, "[%s] cannot open data stream file, %s", ident, strerror (errno));
 
       goto fail;
     }
 
     if ((filepos = lseek (foundgroup->filed, (off_t)0, SEEK_END)) < 0)
     {
-      lprintf (2, "[%s] cannot seek in data stream file, %s",
-               ident, strerror (errno));
+      lprintf (2, "[%s] cannot seek in data stream file, %s", ident, strerror (errno));
       goto fail;
     }
   }
@@ -862,8 +844,7 @@ ds_getstream (DataStream *datastream, const char *defkey, char *filename,
   /* There used to be a further check here, but it shouldn't be reached, just in
      case this is left for the moment until I'm convinced. */
   else if (strcmp (defkey, foundgroup->defkey))
-    lprintf (0, "[%s] Arg! open file for a key that no longer matches",
-             ident);
+    lprintf (0, "[%s] Arg! open file for a key that no longer matches", ident);
 
   return foundgroup;
 
@@ -878,8 +859,7 @@ fail:
     if (foundgroup->filed >= 0)
     {
       if (close (foundgroup->filed))
-        lprintf (2, "[%s] ds_getstream(), closing data stream file, %s",
-                 ident, strerror (errno));
+        lprintf (2, "[%s] ds_getstream(), closing data stream file, %s", ident, strerror (errno));
       foundgroup->filed = -1;
       datastream->openfilecount--;
     }
@@ -914,9 +894,9 @@ ds_openfile (DataStream *datastream, const char *filename, char *ident)
   static char rlimit = 0;
   struct rlimit rlim;
   int idletimeout = datastream->idletimeout;
-  int oret        = 0;
-  int flags       = (O_RDWR | O_CREAT | O_APPEND);
-  mode_t mode     = (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); /* Mode 0666 */
+  int oret = 0;
+  int flags = (O_RDWR | O_CREAT | O_APPEND);
+  mode_t mode = (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); /* Mode 0666 */
 
   if (!datastream)
     return -1;
@@ -928,8 +908,7 @@ ds_openfile (DataStream *datastream, const char *filename, char *ident)
 
     if (getrlimit (RLIMIT_NOFILE, &rlim) == -1)
     {
-      lprintf (0, "[%s] getrlimit failed to get open file limit",
-               ident);
+      lprintf (0, "[%s] getrlimit failed to get open file limit", ident);
     }
     else
     {
@@ -941,13 +920,11 @@ ds_openfile (DataStream *datastream, const char *filename, char *ident)
         else
           rlim.rlim_cur = (rlim_t)datastream->maxopenfiles;
 
-        lprintf (3, "[%s] Setting open file limit to %" PRId64,
-                 ident, (int64_t)rlim.rlim_cur);
+        lprintf (3, "[%s] Setting open file limit to %" PRId64, ident, (int64_t)rlim.rlim_cur);
 
         if (setrlimit (RLIMIT_NOFILE, &rlim) == -1)
         {
-          lprintf (0, "[%s] setrlimit failed to set open file limit",
-                   ident);
+          lprintf (0, "[%s] setrlimit failed to set open file limit", ident);
         }
 
         datastream->maxopenfiles = rlim.rlim_cur;
@@ -963,8 +940,8 @@ ds_openfile (DataStream *datastream, const char *filename, char *ident)
   /* Close open files from the DataStream if already at the limit of (maxopenfiles - 10) */
   if ((datastream->openfilecount + 10) > datastream->maxopenfiles)
   {
-    lprintf (2, "[%s] Maximum open archive files reached (%d), closing idle stream files",
-             ident, (datastream->maxopenfiles - 10));
+    lprintf (2, "[%s] Maximum open archive files reached (%d), closing idle stream files", ident,
+             (datastream->maxopenfiles - 10));
 
     /* Close idle streams until we have free descriptors */
     while (ds_closeidle (datastream, idletimeout, ident) == 0 && idletimeout >= 0)
@@ -991,7 +968,7 @@ ds_openfile (DataStream *datastream, const char *filename, char *ident)
 static void
 ds_shutdown (DataStream *datastream, char *ident)
 {
-  DataStreamGroup *curgroup  = NULL;
+  DataStreamGroup *curgroup = NULL;
   DataStreamGroup *prevgroup = NULL;
 
   curgroup = datastream->grouproot;
@@ -999,21 +976,19 @@ ds_shutdown (DataStream *datastream, char *ident)
   while (curgroup != NULL)
   {
     prevgroup = curgroup;
-    curgroup  = curgroup->next;
+    curgroup = curgroup->next;
 
-    lprintf (3, "[%s] Shutting down stream with key: %s",
-             ident, prevgroup->defkey);
+    lprintf (3, "[%s] Shutting down stream with key: %s", ident, prevgroup->defkey);
 
     if (prevgroup->filed >= 0)
       if (close (prevgroup->filed))
-        lprintf (0, "[%s] ds_shutdown(), closing data stream file, %s",
-                 ident, strerror (errno));
+        lprintf (0, "[%s] ds_shutdown(), closing data stream file, %s", ident, strerror (errno));
 
     free (prevgroup->defkey);
     free (prevgroup);
   }
 
-  datastream->grouproot     = NULL;
+  datastream->grouproot = NULL;
   datastream->openfilecount = 0;
 } /* End of ds_shutdown() */
 
@@ -1042,7 +1017,7 @@ ds_strparse (const char *string, const char *delim, DSstrlist **list)
 {
   const char *beg; /* beginning of element */
   const char *del; /* delimiter */
-  int stop  = 0;
+  int stop = 0;
   int count = 0;
   int total;
 
@@ -1052,7 +1027,7 @@ ds_strparse (const char *string, const char *delim, DSstrlist **list)
   if (string != NULL && delim != NULL)
   {
     total = strlen (string);
-    beg   = string;
+    beg = string;
 
     while (!stop)
     {
@@ -1063,7 +1038,7 @@ ds_strparse (const char *string, const char *delim, DSstrlist **list)
       /* Delimiter not found or empty */
       if (del == NULL || strlen (delim) == 0)
       {
-        del  = string + strlen (string);
+        del = string + strlen (string);
         stop = 1;
       }
 
@@ -1091,12 +1066,12 @@ ds_strparse (const char *string, const char *delim, DSstrlist **list)
       if (count++ == 0)
       {
         curlist = tmplist;
-        *list   = curlist;
+        *list = curlist;
       }
       else
       {
         curlist->next = tmplist;
-        curlist       = curlist->next;
+        curlist = curlist->next;
       }
 
       /* Update 'beg' */
