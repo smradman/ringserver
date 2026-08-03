@@ -95,6 +95,50 @@ class SlowClientTestCase(unittest.TestCase):
         self.assertIn("Total receive deadline exceeded (slow trickle protection)",
                        self.server.log_text())
 
+    def test_slowloris_seedlink_stall(self):
+        # A SeedLink command line that never completes is caught by the
+        # main loop's incomplete-command clock, as for an HTTP request line,
+        # after the connection has been identified as SeedLink.
+        conn = ringtest.SeedLinkConn(self.server.port)
+        self.addCleanup(conn.sock.close)
+        conn.hello()
+
+        conn.sock.sendall(b"STATION XX_TE")  # no line terminator
+
+        start = time.time()
+        data = conn.sock.recv(16)
+        elapsed = time.time() - start
+
+        self.assertEqual(data, b"")
+        self.assertLess(elapsed, 8)
+        self.assertIn("Timeout for incomplete command reception",
+                       self.server.log_text())
+
+    def test_slowloris_seedlink_trickle(self):
+        # Bytes keep arriving but a line terminator never does; the
+        # incomplete-command clock is not reset by continued bytes.
+        conn = ringtest.SeedLinkConn(self.server.port)
+        self.addCleanup(conn.sock.close)
+        conn.hello()
+
+        conn.sock.sendall(b"STATION ")
+        start = time.time()
+        failed = False
+        try:
+            while time.time() - start < 8:
+                time.sleep(0.3)
+                conn.sock.sendall(b"X")
+            data = conn.sock.recv(16)
+            failed = data == b""
+        except (BrokenPipeError, ConnectionResetError):
+            failed = True
+
+        elapsed = time.time() - start
+        self.assertTrue(failed, "server did not disconnect a trickling SeedLink client")
+        self.assertLess(elapsed, 8)
+        self.assertIn("Timeout for incomplete command reception",
+                       self.server.log_text())
+
     def test_proxyv2_header_rejected(self):
         sock = self._raw_conn()
         sock.sendall(b"\r\n\r")

@@ -6,6 +6,8 @@ and SeedLink ring configuration, and allowed_streams/forbidden_streams
 filtering returned by the auth program.
 """
 
+import json
+import re
 import socket
 import sys
 import time
@@ -516,6 +518,129 @@ class StreamAuthGateTestCase(unittest.TestCase):
         self.assertTrue(conn.cmd("AUTH NOPE x").startswith("ERROR UNSUPPORTED"))
 
         self.assertEqual(conn.cmd("AUTH USERPASS alice sesame"), "OK")
+
+    def test_seedlink_v4_auth_jwt_success(self):
+        conn = self._slconn()
+        self.assertEqual(conn.cmd("SLPROTO 4.0"), "OK")
+        self.assertEqual(conn.cmd("AUTH JWT good.jwt.token"), "OK")
+        self.assertEqual(conn.cmd("STATION XX_TEST"), "OK")
+        self.assertEqual(conn.cmd("SELECT 00_B_H_Z"), "OK")
+
+        start_pktid, expected = self.records[0][0], self.records
+        self.assertEqual(conn.cmd(f"DATA {start_pktid}"), "OK")
+        conn.sendline("END")
+
+        prev_pktid = None
+        for pktid, record in expected:
+            frame = conn.recv_v4()
+            self.assertEqual(frame["kind"], "data")
+            self.assertEqual(frame["staid"], "XX_TEST")
+            self.assertEqual(frame["pktid"], pktid)
+            self.assertEqual(frame["payload"], record)
+            if prev_pktid is not None:
+                self.assertGreater(frame["pktid"], prev_pktid)
+            prev_pktid = frame["pktid"]
+
+        conn.sock.settimeout(2)
+        with self.assertRaises(socket.timeout):
+            conn.recv_v4()
+
+    def test_seedlink_v4_auth_jwt_failure_disconnects(self):
+        conn = self._slconn()
+        self.assertEqual(conn.cmd("SLPROTO 4.0"), "OK")
+
+        reply = conn.cmd("AUTH JWT bad.jwt.token")
+        self.assertTrue(reply.startswith("ERROR AUTH"), reply)
+
+        conn.sock.settimeout(3)
+        self.assertEqual(conn.sock.recv(16), b"")
+
+    def test_seedlink_v4_capabilities_advertise_auth_type(self):
+        # FDSN SeedLink v4 spec, section 13: a server offering AUTH must
+        # advertise each supported method as "AUTH:type" (e.g. AUTH:USERPASS,
+        # AUTH:JWT), not a bare "AUTH".
+        conn = self._slconn()
+        self.assertEqual(conn.cmd("SLPROTO 4.0"), "OK")
+        conn.sendline("INFO CAPABILITIES")
+        frame = conn.recv_v4()
+
+        self.assertEqual(frame["kind"], "info")
+        self.assertEqual(frame["format"], "J")
+        self.assertEqual(frame["subformat"], "I")
+
+        doc = json.loads(frame["payload"].decode("utf-8"))
+        capabilities = doc["capability"]
+        auth_types = [cap for cap in capabilities if re.match(r"AUTH:\S+", cap)]
+        self.assertTrue(
+            auth_types,
+            f"no AUTH:<type> capability advertised, got: {capabilities!r}")
+
+
+class AuthTypesTestCase(unittest.TestCase):
+    """AuthTypes config: advertised capabilities and rejection of AUTH
+    sub-commands for a type that is not enabled."""
+
+    @classmethod
+    def setUpClass(cls):
+        server = ringtest.Server(protocols="DataLink SeedLink")
+        script_path = _write_auth_helper(server.tmp_path)
+        server.env_overlay = {
+            "RS_AUTH_COMMAND": f"{sys.executable} {script_path}",
+            "RS_AUTH_TYPES": "USERPASS",
+        }
+        cls.server = server.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.stop()
+
+    def _dlconn(self, **kwargs):
+        """Open a DataLinkConn to the shared server, closed on test end."""
+        conn = ringtest.DataLinkConn(self.server.port, **kwargs)
+        self.addCleanup(conn.close)
+        return conn
+
+    def _slconn(self, **kwargs):
+        """Open a SeedLinkConn to the shared server, closed on test end."""
+        conn = ringtest.SeedLinkConn(self.server.port, **kwargs)
+        self.addCleanup(conn.close)
+        return conn
+
+    def test_capabilities_reflect_configured_types(self):
+        conn = self._slconn()
+        self.assertEqual(conn.cmd("SLPROTO 4.0"), "OK")
+        conn.sendline("INFO CAPABILITIES")
+        frame = conn.recv_v4()
+
+        self.assertEqual(frame["kind"], "info")
+        doc = json.loads(frame["payload"].decode("utf-8"))
+        capabilities = doc["capability"]
+        self.assertIn("AUTH:USERPASS", capabilities)
+        self.assertNotIn("AUTH:JWT", capabilities)
+
+    def test_seedlink_disabled_type_unsupported(self):
+        conn = self._slconn()
+        self.assertEqual(conn.cmd("SLPROTO 4.0"), "OK")
+
+        reply = conn.cmd("AUTH JWT good.jwt.token")
+        self.assertTrue(reply.startswith("ERROR UNSUPPORTED"), reply)
+
+        # The session stays usable for an enabled AUTH type.
+        self.assertEqual(conn.cmd("AUTH USERPASS alice sesame"), "OK")
+
+    def test_datalink_disabled_type_rejected(self):
+        conn = self._dlconn()
+        payload = b"good.jwt.token"
+        conn.send(f"AUTH JWT {len(payload)}", payload)
+        header, resp = conn.recv()
+        self.assertTrue(header.startswith("ERROR"), header)
+        self.assertIn(b"not enabled", resp)
+
+        # A USERPASS auth on the same connection still succeeds.
+        payload = b"alice\rsesame"
+        conn.send(f"AUTH USERPASS {len(payload)}", payload)
+        header, _ = conn.recv()
+        self.assertTrue(header.startswith("OK"), header)
 
 
 class StreamFilterTestCase(unittest.TestCase):
