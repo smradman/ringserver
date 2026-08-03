@@ -409,26 +409,46 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
 
       if (cmdtoken_eq_nocase (cmd, 1, "USERPASS"))
       {
-        /* Parse USERNAME and PASSWORD from credential payload */
-        char *ptr = strchr (credential, '\r');
-
-        if (ptr == NULL)
+        if (!(config.auth.types & AUTH_TYPE_USERPASS))
         {
-          if (SendPacket (cinfo, "ERROR", "AUTH USERPASS requires payload of USER\\rPASS", 0, 1, 1))
+          if (SendPacket (cinfo, "ERROR", "AUTH USERPASS is not enabled", 0, 1, 1))
             return -1;
 
           OKGO = 0;
         }
         else
         {
-          *ptr     = '\0';
-          username = credential;
-          password = ptr + 1;
+          /* Parse USERNAME and PASSWORD from credential payload */
+          char *ptr = strchr (credential, '\r');
+
+          if (ptr == NULL)
+          {
+            if (SendPacket (cinfo, "ERROR", "AUTH USERPASS requires payload of USER\\rPASS", 0, 1, 1))
+              return -1;
+
+            OKGO = 0;
+          }
+          else
+          {
+            *ptr     = '\0';
+            username = credential;
+            password = ptr + 1;
+          }
         }
       }
       else if (cmdtoken_eq_nocase (cmd, 1, "JWT"))
       {
-        jwtoken = credential;
+        if (!(config.auth.types & AUTH_TYPE_JWT))
+        {
+          if (SendPacket (cinfo, "ERROR", "AUTH JWT is not enabled", 0, 1, 1))
+            return -1;
+
+          OKGO = 0;
+        }
+        else
+        {
+          jwtoken = credential;
+        }
       }
       else
       {

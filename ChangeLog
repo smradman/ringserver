@@ -1,10 +1,10 @@
 2026.214:
-	- Add miniSEED v3 test coverage: record generator, DataLink round-trip,
-	  SeedLink v4 native delivery and SELECT :3 conversion, INFO format
-	  reporting, and file scanning.
 	- Cache generated INFO stream and station responses briefly (default
 	  5 seconds, configurable) to reduce CPU usage with many streams and
 		frequently polling clients.
+	- Add AuthTypes config option to advertise supported AUTH types
+	  (USERPASS/JWT) and reject disabled ones without invoking the auth
+	  program.
 	- Fix POSITION SET EARLIEST, SeedLink first-sequence resume, and time-window
 	  starts to include the earliest packet.
 	- Optimize internal stream-list Stack construction.

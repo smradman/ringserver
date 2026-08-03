@@ -257,6 +257,7 @@ The authentication-based access control is specified in the config file
 using the following parameters:
 .nf
   \fBAuthCommand\fP or \fBRS_AUTH_COMMAND\fP
+  \fBAuthTypes\fP or \fBRS_AUTH_TYPES\fP
   \fBAuthTimeout\fP or \fBRS_AUTH_TIMEOUT\fP
 .fi
 
@@ -284,6 +285,14 @@ brief delay and disconnects the client.
 The \fBAuthTimeout\fP config parameter specifies the maximum time, in
 seconds, allowed for the authentication command to complete, default
 is 5 seconds.
+
+The \fBAuthTypes\fP config parameter specifies which AUTH types the
+\fBAuthCommand\fP program supports, as a space-separated list of
+\fBUSERPASS\fP and/or \fBJWT\fP, default is both.  This controls which
+\fBAUTH:USERPASS\fP and/or \fBAUTH:JWT\fP entries are advertised in the
+SeedLink v4 INFO CAPABILITIES response, and an AUTH command of a type
+not listed is rejected as unsupported without invoking the
+\fBAuthCommand\fP program.
 
 .SH "SeedLink Support"
 

@@ -371,6 +371,14 @@ static const char *reference_config_file_parts[] = {
     "#AuthCommand </path/to/program> [arguments]\n"
     "\n"
     "\n",
+    "# Specify which AUTH types the authentication program supports, as a\n"
+    "# space-separated list of USERPASS and/or JWT.  Default is both.\n"
+    "# This is a dynamic parameter.\n"
+    "# Equivalent environment variable: RS_AUTH_TYPES\n"
+    "\n"
+    "#AuthTypes USERPASS JWT\n"
+    "\n"
+    "\n",
     "# Require authentication for a client to stream or read data.\n"
     "# Default is 0 (off).\n"
     "# This is a dynamic parameter.\n"
@@ -1319,6 +1327,14 @@ ReadEnvironmentVariables (void)
     count++;
   }
 
+  if ((envvar = getenv ("RS_AUTH_TYPES")) && strcasecmp (envvar, "DISABLE"))
+  {
+    snprintf (paramstr, sizeof (paramstr), "AuthTypes %s", envvar);
+    if (SetParameter (paramstr, 0) <= 0)
+      return -1;
+    count++;
+  }
+
   if ((envvar = getenv ("RS_WRITE_IP")) && strcasecmp (envvar, "DISABLE"))
   {
     char *envdup = strdup (envvar);
@@ -1660,6 +1676,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   int saved_tlsverifyclientcert = 0;
   uint8_t saved_auth_required = 0;
   uint32_t saved_auth_timeout_sec = 0;
+  uint8_t saved_auth_types = 0;
   int saved_usagelog_interval = 0;
 
   if (!configfile)
@@ -1722,6 +1739,7 @@ ReadConfigFile (char *configfile, int dynamiconly, time_t mtime)
   saved_tlsverifyclientcert = config.tlsverifyclientcert;
   saved_auth_required = config.auth.required;
   saved_auth_timeout_sec = config.auth.timeout_sec;
+  saved_auth_types = config.auth.types;
   saved_usagelog_interval = config.usagelog.interval;
 
   /* Clear the write, trusted, allowed, forbidden, match and reject IPs lists */
@@ -1903,6 +1921,7 @@ restore_config:
   config.tlsverifyclientcert = saved_tlsverifyclientcert;
   config.auth.required = saved_auth_required;
   config.auth.timeout_sec = saved_auth_timeout_sec;
+  config.auth.types = saved_auth_types;
   config.usagelog.interval = saved_usagelog_interval;
 
   return -1;
@@ -1947,6 +1966,7 @@ restore_config:
  * [D] UsageLogJSONLines <1|0>     (alias: TransferLogJSONLines)
  * [D] UsageLogAccess <1|0>
  * [D] AuthCommand <command>
+ * [D] AuthTypes <USERPASS|JWT> [USERPASS|JWT]
  * [D] AuthRequiredForStreams <1|0>
  * [D] AuthTimeout <timeout>
  * [D] WriteIP <IP>[/netmask]
@@ -2480,6 +2500,25 @@ SetParameter (const char *paramstring, int dynamiconly)
     }
 
     config.auth.timeout_sec = u32val;
+  }
+  else if (!strcasecmp ("AuthTypes", field[0]) && fieldcount >= 2)
+  {
+    uint8_t types = 0;
+
+    for (int idx = 1; idx < fieldcount; idx++)
+    {
+      if (!strcasecmp (field[idx], "USERPASS"))
+        types |= AUTH_TYPE_USERPASS;
+      else if (!strcasecmp (field[idx], "JWT"))
+        types |= AUTH_TYPE_JWT;
+      else
+      {
+        lprintf (0, "Error with %s config parameter: %s", field[0], paramstring);
+        return -1;
+      }
+    }
+
+    config.auth.types = types;
   }
   else if (!strcasecmp ("WriteIP", field[0]) && fieldcount == 2)
   {

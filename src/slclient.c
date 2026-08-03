@@ -1052,7 +1052,14 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     {
       lprintf (2, "[%s] Received AUTH USERPASS", cinfo->hostname);
 
-      if (cmd->argc != 4 || cmd->overflow)
+      if (!(config.auth.types & AUTH_TYPE_USERPASS))
+      {
+        if (SendReply (cinfo, "ERROR", ERROR_UNSUPPORTED, "AUTH USERPASS is not enabled"))
+          return -1;
+
+        OKGO = 0;
+      }
+      else if (cmd->argc != 4 || cmd->overflow)
       {
         lprintf (0, "[%s] Error parsing AUTH USERPASS", cinfo->hostname);
 
@@ -1083,16 +1090,26 @@ HandleNegotiation (ClientInfo *cinfo, CmdToken *cmd)
     {
       lprintf (2, "[%s] Received AUTH JWT", cinfo->hostname);
 
-      jwtoken = (char *)cmdtoken_rest_after (cmd, 2);
-
-      if (!jwtoken || jwtoken[0] == '\0')
+      if (!(config.auth.types & AUTH_TYPE_JWT))
       {
-        lprintf (0, "[%s] Error parsing AUTH JWT", cinfo->hostname);
-
-        if (SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "AUTH JWT requires 1 argument"))
+        if (SendReply (cinfo, "ERROR", ERROR_UNSUPPORTED, "AUTH JWT is not enabled"))
           return -1;
 
         OKGO = 0;
+      }
+      else
+      {
+        jwtoken = (char *)cmdtoken_rest_after (cmd, 2);
+
+        if (!jwtoken || jwtoken[0] == '\0')
+        {
+          lprintf (0, "[%s] Error parsing AUTH JWT", cinfo->hostname);
+
+          if (SendReply (cinfo, "ERROR", ERROR_ARGUMENTS, "AUTH JWT requires 1 argument"))
+            return -1;
+
+          OKGO = 0;
+        }
       }
     }
     else

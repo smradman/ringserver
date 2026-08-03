@@ -151,6 +151,7 @@ The authentication-based access control is specified in the config file using th
 
 ```
   AuthCommand or RS_AUTH_COMMAND
+  AuthTypes or RS_AUTH_TYPES
   AuthTimeout or RS_AUTH_TIMEOUT
 ```
 
@@ -169,6 +170,8 @@ The <b>AuthCommand</b> config parameter specifies a command to be executed when 
 The <b>authenticated</b> key must be present and set to true for the client to be allowed to connect.  Missing keys are treated as false or empty. If authentication is denied, the server sends an error response after a brief delay and disconnects the client.
 
 The <b>AuthTimeout</b> config parameter specifies the maximum time, in seconds, allowed for the authentication command to complete, default is 5 seconds.
+
+The <b>AuthTypes</b> config parameter specifies which AUTH types the <b>AuthCommand</b> program supports, as a space-separated list of <b>USERPASS</b> and/or <b>JWT</b>, default is both.  This controls which <b>AUTH:USERPASS</b> and/or <b>AUTH:JWT</b> entries are advertised in the SeedLink v4 INFO CAPABILITIES response, and an AUTH command of a type not listed is rejected as unsupported without invoking the <b>AuthCommand</b> program.
 
 ## <a id="seedlink-support">Seedlink Support</a>
 

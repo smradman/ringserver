@@ -135,6 +135,7 @@ struct config_s config = {
     .auth.argv = NULL,
     .auth.required = 0,
     .auth.timeout_sec = 5,
+    .auth.types = (AUTH_TYPE_USERPASS | AUTH_TYPE_JWT),
     .usagelog.write_lock = PTHREAD_MUTEX_INITIALIZER,
     .usagelog.mode = USAGELOG_NONE,
     .usagelog.basedir = NULL,

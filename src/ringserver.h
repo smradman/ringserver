@@ -181,6 +181,10 @@ struct param_s
 
 extern struct param_s param;
 
+/* AUTH type flags for auth.types */
+#define AUTH_TYPE_USERPASS 0x01
+#define AUTH_TYPE_JWT      0x02
+
 /* Configuration parameters */
 struct config_s
 {
@@ -226,6 +230,7 @@ struct config_s
     char **argv;          /* Parsed argument array for authentication and authorization */
     uint8_t required;     /* Flag to require authentication for streaming data */
     uint32_t timeout_sec; /* Auth program timeout in seconds */
+    _Atomic uint8_t types; /* Bitmask of enabled AUTH types */
   } auth;
   struct usagelog
   {

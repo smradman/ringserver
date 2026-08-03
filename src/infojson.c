@@ -199,13 +199,14 @@ info_add_capabilities (yyjson_mut_doc *doc)
 
   free (string);
 
-  /* Add AUTH capability if enabled in the server.  The server delegates
-   * authentication to an external program and does not know which AUTH
-   * types it accepts, so advertise the bare "AUTH" capability. */
+  /* Advertise enabled AUTH types when an auth program is configured */
   pthread_rwlock_rdlock (&config.config_rwlock);
   if (config.auth.program)
   {
-    if (!yyjson_mut_arr_add_strcpy (doc, capability, "AUTH"))
+    if ((config.auth.types & AUTH_TYPE_USERPASS &&
+         !yyjson_mut_arr_add_strcpy (doc, capability, "AUTH:USERPASS")) ||
+        (config.auth.types & AUTH_TYPE_JWT &&
+         !yyjson_mut_arr_add_strcpy (doc, capability, "AUTH:JWT")))
     {
       pthread_rwlock_unlock (&config.config_rwlock);
       return NULL;
