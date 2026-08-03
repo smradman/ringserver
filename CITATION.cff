@@ -5,7 +5,7 @@ authors:
   given-names: "Chad"
   orcid: "https://orcid.org/0000-0002-6184-3568"
 title: "ringserver - streaming data server"
-version: v2020.075
-date-released: 2020-03-17
+version: v4.5.5
+date-released: 2020-08-02
 url: "https://github.com/EarthScope/ringserver"
 
