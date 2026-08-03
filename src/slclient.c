@@ -322,14 +322,24 @@ SLHandleCmd (ClientInfo *cinfo)
             cinfo->endtime = stationid->endtime;
         }
 
-        /* Validate the resume point, tracking the newest */
-        uint8_t validated = ValidateResumePoint (cinfo, stationid->packetid, stationid->datastart);
-
-        /* Use this resume point if it is newer than any previous newest */
-        if (validated && (newesttime == NSTUNSET || cinfo->packet.pkttime > newesttime))
+        /* An ALL request positions to the earliest packet, superseding any
+         * resume point, unless a start time will position by time instead */
+        if (stationid->packetid == RINGID_EARLIEST)
         {
-          slinfo->startid = stationid->packetid;
-          newesttime = cinfo->packet.pkttime;
+          if (stationid->starttime == NSTUNSET)
+            slinfo->startid = RINGID_EARLIEST;
+        }
+        else if (slinfo->startid != RINGID_EARLIEST)
+        {
+          /* Validate the resume point, tracking the newest */
+          uint8_t validated = ValidateResumePoint (cinfo, stationid->packetid, stationid->datastart);
+
+          /* Use this resume point if it is newer than any previous newest */
+          if (validated && (newesttime == NSTUNSET || cinfo->packet.pkttime > newesttime))
+          {
+            slinfo->startid = stationid->packetid;
+            newesttime = cinfo->packet.pkttime;
+          }
         }
       }
 
@@ -401,8 +411,12 @@ SLHandleCmd (ClientInfo *cinfo)
       cinfo->reader->pkttime = saved_pkttime;
     }
 
+    /* An ALL request with a start time is positioned by time instead */
+    if (slinfo->startid == RINGID_EARLIEST && cinfo->starttime != NSTUNSET)
+      slinfo->startid = RINGID_NONE;
+
     /* Position ring to deliver the starting packet ID if one was identified */
-    if (slinfo->startid <= RINGID_MAXIMUM)
+    if (slinfo->startid <= RINGID_MAXIMUM || slinfo->startid == RINGID_EARLIEST)
     {
       retval = RingPositionBefore (cinfo->reader, slinfo->startid);
 

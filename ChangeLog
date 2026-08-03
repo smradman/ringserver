@@ -3,8 +3,7 @@
 	  5 seconds, configurable) to reduce CPU usage with many streams and
 		frequently polling clients.
 	- Add AuthTypes config option to advertise supported AUTH types
-	  (USERPASS/JWT) and reject disabled ones without invoking the auth
-	  program.
+	  (USERPASS/JWT) and reject disabled ones.
 	- Fix POSITION SET EARLIEST, SeedLink first-sequence resume, and time-window
 	  starts to include the earliest packet.
 	- Optimize internal stream-list Stack construction.
