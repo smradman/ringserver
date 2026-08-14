@@ -1,3 +1,7 @@
+2026.225: v4.5.6
+	- Fix idle clients being disconnected as "incomplete command reception" after
+	  a command with a separately received payload.
+
 2026.214: v4.5.5
 	- Cache generated INFO stream and station responses briefly (default
 	  5 seconds, configurable) to reduce CPU usage with many streams and

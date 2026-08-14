@@ -322,9 +322,6 @@ ClientThread (void *arg)
       /* If data was received do not throttle */
       throttle_msec = 0;
 
-      /* Reset incomplete recv timer, a complete command was received */
-      cinfo->recvstart = 0;
-
       /* Handle data from client according to client type */
       if (cinfo->type == CLIENT_DATALINK)
       {
@@ -342,6 +339,11 @@ ClientThread (void *arg)
       {
         cmd_result = SLHandleCmd (cinfo);
       }
+
+      /* Reset the incomplete command clock now that the command and any
+         payload have been received, restarting it if unconsumed bytes
+         remain as they are the start of another command. */
+      cinfo->recvstart = (cinfo->recvlength > cinfo->recvconsumed) ? NSnow () : 0;
 
       /* Fatal error from command handler */
       if (cmd_result < 0)
@@ -409,7 +411,7 @@ ClientThread (void *arg)
       /* Check for stalled incomplete command reception (slow-loris protection).
          If data appeared in the buffer but a complete command has not been
          received within the network I/O timeout, disconnect the client. */
-      if (cinfo->recvstart != 0 &&
+      if (config.netiotimeout > 0 && cinfo->recvstart != 0 &&
           (NSnow () - cinfo->recvstart) > ((nstime_t)NSTMODULUS * config.netiotimeout))
       {
         lprintf (0, "[%s] Timeout for incomplete command reception", cinfo->hostname);

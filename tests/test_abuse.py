@@ -139,6 +139,39 @@ class SlowClientTestCase(unittest.TestCase):
         self.assertIn("Timeout for incomplete command reception",
                        self.server.log_text())
 
+    def test_datalink_write_payload_does_not_arm_stale_timer(self):
+        # A WRITE header and its miniSEED payload sent in separate segments
+        # force the server's blocking payload read to call recv(), which
+        # previously left the incomplete-command clock armed even after the
+        # WRITE fully completed, disconnecting an otherwise idle writer.
+        prefix = unique("PAYLOAD")
+        streamid = f"{prefix}/RAW"
+        writer = ringtest.DataLinkConn(self.server.port)
+        self.addCleanup(writer.close)
+
+        payload = ringtest.make_ms2()
+        now_us = int(time.time() * 1_000_000)
+        header = f"WRITE {streamid} {now_us} {now_us + 1000} A {len(payload)}"
+        hbytes = header.encode("ascii")
+
+        writer.sock.sendall(b"DL" + bytes([len(hbytes)]) + hbytes)
+        time.sleep(0.2)
+        writer.sock.sendall(payload)
+
+        resp_header, _ = writer.recv()
+        self.assertTrue(resp_header.startswith("OK"), resp_header)
+        first_pid = int(resp_header.split()[1])
+
+        # Idle past the network I/O timeout; the connection should remain
+        # open since the WRITE fully completed.
+        time.sleep(5)
+
+        last_pid = writer.write(streamid, ringtest.make_ms2())
+        self.assertIsNotNone(last_pid)
+        self.assertGreater(last_pid, first_pid)
+        self.assertNotIn("Timeout for incomplete command reception",
+                          self.server.log_text())
+
     def test_proxyv2_header_rejected(self):
         sock = self._raw_conn()
         sock.sendall(b"\r\n\r")
