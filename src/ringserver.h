@@ -34,7 +34,7 @@ extern "C"
 #include <stdatomic.h>
 
 #define PACKAGE "ringserver"
-#define VERSION "4.5.5"
+#define VERSION "4.5.6"
 
 /* Listen thread protocols, defined before including clients.h to avoid circular include */
 typedef enum
