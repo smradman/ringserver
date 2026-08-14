@@ -924,6 +924,9 @@ RecvWSFrame (ClientInfo *cinfo, uint64_t *length)
     if (*length > 0)
       SendData (cinfo, payload, *length, 1);
 
+    /* A ping/pong exchange is a complete transaction on its own */
+    ResetCommandTimer (cinfo);
+
     return 0;
   }
 
@@ -954,6 +957,9 @@ RecvWSFrame (ClientInfo *cinfo, uint64_t *length)
 
       totalrecv += nrecv;
     }
+
+    /* A received pong is a complete transaction on its own */
+    ResetCommandTimer (cinfo);
 
     return 0;
   }

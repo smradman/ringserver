@@ -179,7 +179,13 @@ extern int RecvDLCommand (ClientInfo *cinfo);
 
 extern int RecvLine (ClientInfo *cinfo);
 
+extern void ResetCommandTimer (ClientInfo *cinfo);
+
 extern int PollSocket (int socket, int readability, int writability, int timeout_ms);
+
+/* Fallback timeout (in milliseconds) for a network read or write poll when
+   the network I/O timeout is disabled (netiotimeout == 0). */
+#define NETIO_POLL_TIMEOUT_MAX_MS 100000
 
 extern StreamNode *GetStreamNode (RBTree *tree, pthread_mutex_t *plock, char *streamid,
                                   int streams_count, int *new);

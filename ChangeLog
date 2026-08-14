@@ -1,6 +1,11 @@
 2026.225: v4.5.6
 	- Fix idle clients being disconnected as "incomplete command reception" after
 	  a command with a separately received payload.
+	- Fix WebSocket ping/pong leaving the incomplete-command clock armed.
+	- Fix NetIOTimeout of 0 (disabled) making network I/O polls stricter
+	  instead of unbounded.
+	- Fix a WebSocket frame holding two commands disconnecting the client
+	  with an unrelated FIN-flag error.
 
 2026.214: v4.5.5
 	- Cache generated INFO stream and station responses briefly (default

@@ -340,10 +340,8 @@ ClientThread (void *arg)
         cmd_result = SLHandleCmd (cinfo);
       }
 
-      /* Reset the incomplete command clock now that the command and any
-         payload have been received, restarting it if unconsumed bytes
-         remain as they are the start of another command. */
-      cinfo->recvstart = (cinfo->recvlength > cinfo->recvconsumed) ? NSnow () : 0;
+      /* Reset the incomplete command clock */
+      ResetCommandTimer (cinfo);
 
       /* Fatal error from command handler */
       if (cmd_result < 0)
@@ -634,8 +632,9 @@ ClientRecv (ClientInfo *cinfo)
     }
   }
 
-  /* Recv a WebSocket frame if this connection is WebSocket */
-  if (cinfo->websocket)
+  /* Recv a WebSocket frame if this connection is WebSocket and no payload
+     from a previously received frame remains to be processed */
+  if (cinfo->websocket && cinfo->recvlength <= cinfo->recvconsumed)
   {
     uint64_t payload_length = 0;
 
@@ -748,6 +747,10 @@ SendDataMB (ClientInfo *cinfo, void *buffer[], size_t buflen[], int bufcount, in
   int nsent;
   int idx;
 
+  /* Poll timeout for send retries, w/ fall back to a fixed maximum */
+  int poll_timeout_ms =
+      (config.netiotimeout > 0) ? (int)config.netiotimeout * 1000 : NETIO_POLL_TIMEOUT_MAX_MS;
+
   uint8_t wsframe[10];
   size_t wsframelen;
 
@@ -842,9 +845,9 @@ SendDataMB (ClientInfo *cinfo, void *buffer[], size_t buflen[], int bufcount, in
         {
           pollret = 1;
           if (nsent == MBEDTLS_ERR_SSL_WANT_READ)
-            pollret = PollSocket (cinfo->socket, 1, 0, config.netiotimeout * 1000);
+            pollret = PollSocket (cinfo->socket, 1, 0, poll_timeout_ms);
           else if (nsent == MBEDTLS_ERR_SSL_WANT_WRITE)
-            pollret = PollSocket (cinfo->socket, 0, 1, config.netiotimeout * 1000);
+            pollret = PollSocket (cinfo->socket, 0, 1, poll_timeout_ms);
           else
             break;
 
@@ -877,11 +880,9 @@ SendDataMB (ClientInfo *cinfo, void *buffer[], size_t buflen[], int bufcount, in
         {
           pollret = 1;
           if (nsent == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
-            pollret = PollSocket (cinfo->socket, 0, 1, config.netiotimeout * 1000);
+            pollret = PollSocket (cinfo->socket, 0, 1, poll_timeout_ms);
           else if (nsent == -1 && errno == EINTR)
-          {
             continue; /* Interrupted, retry send() */
-          }
           else if (nsent < 0)
             break;
           else if (nsent == 0)
@@ -1086,8 +1087,10 @@ RecvData (ClientInfo *cinfo, void *buffer, size_t requested, int fulfill)
         }
       }
 
-      /* Poll up to socket timeout value (in seconds) */
-      int pollret = PollSocket (cinfo->socket, 1, 0, config.netiotimeout * 1000);
+      /* Poll up to socket timeout value (in seconds), w/ fallback */
+      int pollret = PollSocket (cinfo->socket, 1, 0,
+                                (config.netiotimeout > 0) ? (int)config.netiotimeout * 1000
+                                                          : NETIO_POLL_TIMEOUT_MAX_MS);
 
       if (pollret == 0)
       {
@@ -1167,6 +1170,21 @@ RecvData (ClientInfo *cinfo, void *buffer, size_t requested, int fulfill)
 
   return requested;
 } /* End of RecvData() */
+
+/***********************************************************************
+ * ResetCommandTimer:
+ *
+ * Reset the incomplete command clock (slow-loris protection) after a
+ * complete command or frame has been handled, restarting it if
+ * unconsumed bytes remain in the receive buffer as they are the start
+ * of another command.
+ ***********************************************************************/
+void
+ResetCommandTimer (ClientInfo *cinfo)
+{
+  if (cinfo)
+    cinfo->recvstart = (cinfo->recvlength > cinfo->recvconsumed) ? NSnow () : 0;
+} /* End of ResetCommandTimer() */
 
 /***********************************************************************
  * RecvDLCommand:

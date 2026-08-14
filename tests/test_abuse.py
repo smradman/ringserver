@@ -144,6 +144,7 @@ class SlowClientTestCase(unittest.TestCase):
         # force the server's blocking payload read to call recv(), which
         # previously left the incomplete-command clock armed even after the
         # WRITE fully completed, disconnecting an otherwise idle writer.
+        log_mark = len(self.server.log_text())
         prefix = unique("PAYLOAD")
         streamid = f"{prefix}/RAW"
         writer = ringtest.DataLinkConn(self.server.port)
@@ -170,7 +171,60 @@ class SlowClientTestCase(unittest.TestCase):
         self.assertIsNotNone(last_pid)
         self.assertGreater(last_pid, first_pid)
         self.assertNotIn("Timeout for incomplete command reception",
-                          self.server.log_text())
+                          self.server.log_text()[log_mark:])
+
+    def test_websocket_ping_does_not_arm_stale_timer(self):
+        # A WebSocket ping is answered entirely within RecvWSFrame(), which
+        # previously left the incomplete-command clock armed by its own
+        # payload recv even though the ping/pong exchange was complete.
+        log_mark = len(self.server.log_text())
+        ws = ringtest.WebSocketConn(self.server.port, "/datalink",
+                                     subprotocol="DataLink1.1")
+        self.addCleanup(ws.close)
+        dl = ringtest.DataLinkConn(0, sock=ws)
+
+        ws._send_control(0x9, b"keepalive")
+        opcode, payload = ws._read_frame()
+        self.assertEqual(opcode, 0xA)
+        self.assertEqual(payload, b"keepalive")
+
+        # Idle past the network I/O timeout; the connection should remain
+        # open since the ping/pong exchange fully completed.
+        time.sleep(5)
+
+        prefix = unique("WSPING")
+        pid = dl.write(f"{prefix}/RAW", ringtest.make_ms2())
+        self.assertIsNotNone(pid)
+        self.assertNotIn("Timeout for incomplete command reception",
+                          self.server.log_text()[log_mark:])
+
+    def test_websocket_two_commands_in_one_frame(self):
+        # Two DataLink commands packed into a single WebSocket frame; the
+        # second was previously misread as a stray frame header (its 'D','L'
+        # bytes), disconnecting the client with an unrelated FIN-flag error.
+        ws = ringtest.WebSocketConn(self.server.port, "/datalink",
+                                     subprotocol="DataLink1.1")
+        self.addCleanup(ws.close)
+        dl = ringtest.DataLinkConn(0, sock=ws)
+
+        prefix = unique("WSFRAME")
+        payload1 = ringtest.make_ms2(seq=1)
+        payload2 = ringtest.make_ms2(seq=2)
+        now_us = int(time.time() * 1_000_000)
+
+        def command_bytes(streamid, payload):
+            header = f"WRITE {streamid} {now_us} {now_us + 1000} A {len(payload)}"
+            hbytes = header.encode("ascii")
+            return b"DL" + bytes([len(hbytes)]) + hbytes + payload
+
+        combined = (command_bytes(f"{prefix}_A/RAW", payload1) +
+                    command_bytes(f"{prefix}_B/RAW", payload2))
+        ws.send_bytes(combined)
+
+        header1, _ = dl.recv()
+        header2, _ = dl.recv()
+        self.assertTrue(header1.startswith("OK"), header1)
+        self.assertTrue(header2.startswith("OK"), header2)
 
     def test_proxyv2_header_rejected(self):
         sock = self._raw_conn()
@@ -399,6 +453,35 @@ class IdleTimeoutTestCase(unittest.TestCase):
             self.assertLess(elapsed, 16)
             self.assertIn("Non-communicating client timeout", server.log_text())
             sock.close()
+        finally:
+            server.stop()
+
+
+class NetIOTimeoutDisabledTestCase(unittest.TestCase):
+    """NetIOTimeout 0 (disabled) must not make network I/O polls stricter
+    than a configured timeout; a fragmented but otherwise valid command
+    should not be disconnected almost immediately.
+    """
+
+    def test_write_payload_in_separate_segment_succeeds(self):
+        server = ringtest.Server(
+            protocols="DataLink", env={"RS_NETIO_TIMEOUT": "0"}).start()
+        try:
+            writer = ringtest.DataLinkConn(server.port)
+
+            streamid = f"{unique('DISABLED')}/RAW"
+            payload = ringtest.make_ms2()
+            now_us = int(time.time() * 1_000_000)
+            header = f"WRITE {streamid} {now_us} {now_us + 1000} A {len(payload)}"
+            hbytes = header.encode("ascii")
+
+            writer.sock.sendall(b"DL" + bytes([len(hbytes)]) + hbytes)
+            time.sleep(0.5)
+            writer.sock.sendall(payload)
+
+            resp_header, _ = writer.recv()
+            self.assertTrue(resp_header.startswith("OK"), resp_header)
+            writer.close()
         finally:
             server.stop()
 
